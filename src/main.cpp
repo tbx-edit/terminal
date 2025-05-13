@@ -836,7 +836,9 @@ int main(int argc, char *argv[]) {
 
     // numbers must be odd to have a center
     int num_lines = 41;
-    int num_cols = 101;
+    int num_cols = 121;
+    int center_line = num_lines / 2;
+    int center_col = num_cols / 2;
 
     bool start_in_fullscreen = false;
 
@@ -918,7 +920,7 @@ int main(int argc, char *argv[]) {
 
     std::thread animation_thread([&] {
         while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // ~60 FPS
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // ~60 FPS
             screen.PostEvent(Event::Custom);
         }
     });
@@ -935,7 +937,13 @@ int main(int argc, char *argv[]) {
             for (int line = 0; line < num_lines; line++) {
                 for (int col = 0; col < num_cols; col++) {
                     std::string cell_char(1, viewport.get_symbol_at(line, col));
-                    c.DrawText(col * 2, line * 4, cell_char, [](Pixel &p) { p.foreground_color = Color::Yellow; });
+                    c.DrawText(col * 2, line * 4, cell_char, [&](Pixel &p) {
+                        p.foreground_color = Color::Yellow;
+                        bool at_center = line == center_line and col == center_col;
+                        if (at_center) {
+                            p.background_color = Color::White;
+                        }
+                    });
                 }
             }
 
@@ -954,6 +962,10 @@ int main(int argc, char *argv[]) {
                 is_pressed = false;
             }
 
+            for (auto &[key, is_pressed] : input_key_state.input_key_to_just_pressed) {
+                is_pressed = false;
+            }
+
             return canvas(std::move(c)) | border;
         }),
     });
@@ -966,10 +978,11 @@ int main(int argc, char *argv[]) {
             for (const auto &key : it->second) {
                 auto str = input_key_to_string(key, false);
                 input_key_state.input_key_to_is_pressed[key] = true;
-
                 bool was_pressed = input_key_state.input_key_to_is_pressed_prev[key];
                 input_key_state.input_key_to_just_pressed[key] =
                     input_key_state.input_key_to_is_pressed[key] && !was_pressed;
+                fl << "in catch, is pressed: " << input_key_state.input_key_to_is_pressed[key]
+                   << " was not pressed: " << !was_pressed << std::endl;
             }
             fl << std::endl;
         } else {
