@@ -161,6 +161,7 @@ class ModalEditor {
   public:
     // main stuff start
     EditorMode current_mode = MOVE_AND_EDIT;
+    std::string get_mode_string();
     TemporalBinarySignal mode_change_signal;
     Viewport &viewport;
     InputKeyState iks = InputKeyState();

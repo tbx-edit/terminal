@@ -146,23 +146,6 @@ void adjust_uv_coordinates_in_place(std::vector<glm::vec2> &uv_coords, float hor
     uv_coords[3].y += top_push;
 }
 
-std::string get_mode_string(EditorMode current_mode) {
-    switch (current_mode) {
-    case MOVE_AND_EDIT:
-        return "MOVE_AND_EDIT";
-        break;
-    case INSERT:
-        return "INSERT";
-        break;
-    case VISUAL_SELECT:
-        return "VISUAL_SELECT";
-        break;
-    case COMMAND:
-        return "COMMAND";
-        break;
-    }
-    return "";
-}
 
 // int unique_idx = 0;
 // for (int line = 0; line < screen_grid.rows; line++) {
@@ -824,6 +807,14 @@ int main(int argc, char *argv[]) {
     //     }
     // });
 
+
+    // auto screen = ScreenInteractive::TerminalOutput();
+    auto screen = ScreenInteractive::Fullscreen();
+
+    FileLogger fl("logs.txt");
+
+    fl << "screen dimx: " << screen.dimx() << " screen dimy: " << screen.dimy() << std::endl;
+
     int saved_for_automatic_column_adjustment = 0;
     int saved_last_col_for_automatic_column_adjustment = 0;
     int saved_last_line_for_automatic_column_adjustment = 0;
@@ -894,8 +885,6 @@ int main(int argc, char *argv[]) {
     ModalEditor modal_editor(viewport);
     modal_editor.switch_files(filename, true);
 
-    FileLogger fl("logs.txt");
-
     InputKeyState input_key_state = InputKeyState();
 
     fl << "initial iks size: " << input_key_state.input_key_to_is_pressed.size() << std::endl;
@@ -912,8 +901,6 @@ int main(int argc, char *argv[]) {
     fl << "lookup input: " << Event::a.input() << std::endl;
     fl << "key input: " << event_to_input_keys.begin()->first.input() << std::endl;
 
-    // auto screen = ScreenInteractive::TerminalOutput();
-    auto screen = ScreenInteractive::Fullscreen();
 
     // auto c = Canvas(num_cols, num_lines);
     // c.DrawPointCircle(5, 5, 5);
@@ -946,6 +933,9 @@ int main(int argc, char *argv[]) {
                     });
                 }
             }
+
+            fl << "command mode: " << modal_editor.get_mode_string() << std::endl;
+            fl << "command bar: " << modal_editor.command_bar_input << std::endl;
 
             fl << "doing circle x at: " << inc % (num_cols * 2) << std::endl;
             c.DrawPointCircle(inc % (num_cols * 2), 1, 2); // Prevent runaway inc value

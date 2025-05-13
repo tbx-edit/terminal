@@ -1,5 +1,23 @@
 #include "modal_editor.hpp"
 
+std::string ModalEditor::get_mode_string() {
+    switch (current_mode) {
+    case MOVE_AND_EDIT:
+        return "MOVE_AND_EDIT";
+        break;
+    case INSERT:
+        return "INSERT";
+        break;
+    case VISUAL_SELECT:
+        return "VISUAL_SELECT";
+        break;
+    case COMMAND:
+        return "COMMAND";
+        break;
+    }
+    return "";
+}
+
 std::string input_key_to_string(InputKey key, bool shift_pressed) {
     switch (key) {
     case InputKey::a:
