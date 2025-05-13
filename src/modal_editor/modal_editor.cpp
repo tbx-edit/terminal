@@ -401,7 +401,7 @@ void ModalEditor::handle_hjkl_with_number_modifier(const std::smatch &m) {
             break; // Scroll right
         }
 
-        std::cout << "line delta: " << line_delta << ", col delta: " << col_delta << std::endl;
+        // std::cout << "line delta: " << line_delta << ", col delta: " << col_delta << std::endl;
         viewport.scroll(line_delta, col_delta);
     }
 }
@@ -658,7 +658,7 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
                 for (const auto &key : keys_just_pressed_this_tick) {
                     potential_regex_command += key;
                 }
-                std::cout << "prc: " << potential_regex_command << std::endl;
+                // std::cout << "prc: " << potential_regex_command << std::endl;
             }
 
             bool command_was_run = rcr.potentially_run_command(potential_regex_command);
@@ -684,7 +684,7 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
                     if (jp(InputKey::o)) {
                         viewport.history.go_back();
                         auto [file_path, line, col] = viewport.history.get_current_history_flc();
-                        std::cout << "going back to: " << file_path << line << col << std::endl;
+                        // std::cout << "going back to: " << file_path << line << col << std::endl;
                         if (file_path != viewport.buffer->current_file_path) {
                             switch_files(file_path, false);
                         }
@@ -693,7 +693,7 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
                     if (jp(InputKey::i)) {
                         viewport.history.go_forward();
                         auto [file_path, line, col] = viewport.history.get_current_history_flc();
-                        std::cout << "going forward to: " << file_path << line << col << std::endl;
+                        // std::cout << "going forward to: " << file_path << line << col << std::endl;
                         if (file_path != viewport.buffer->current_file_path) {
                             switch_files(file_path, false);
                         }

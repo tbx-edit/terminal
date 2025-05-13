@@ -49,6 +49,52 @@ enum class InputKey {
     DUMMY
 };
 
+#include <array>
+
+constexpr std::array<InputKey, static_cast<size_t>(InputKey::DUMMY)> all_input_keys = {
+    InputKey::a, InputKey::b, InputKey::c, InputKey::d, InputKey::e, InputKey::f,
+    InputKey::g, InputKey::h, InputKey::i, InputKey::j, InputKey::k, InputKey::l,
+    InputKey::m, InputKey::n, InputKey::o, InputKey::p, InputKey::q, InputKey::r,
+    InputKey::s, InputKey::t, InputKey::u, InputKey::v, InputKey::w, InputKey::x,
+    InputKey::y, InputKey::z,
+
+    InputKey::SPACE,
+    InputKey::GRAVE_ACCENT,
+    InputKey::TILDE,
+
+    InputKey::ONE, InputKey::TWO, InputKey::THREE, InputKey::FOUR, InputKey::FIVE,
+    InputKey::SIX, InputKey::SEVEN, InputKey::EIGHT, InputKey::NINE, InputKey::ZERO,
+    InputKey::MINUS, InputKey::EQUAL,
+
+    InputKey::EXCLAMATION_POINT, InputKey::AT_SIGN, InputKey::NUMBER_SIGN,
+    InputKey::DOLLAR_SIGN, InputKey::PERCENT_SIGN, InputKey::CARET,
+    InputKey::AMPERSAND, InputKey::ASTERISK, InputKey::LEFT_PARENTHESIS,
+    InputKey::RIGHT_PARENTHESIS, InputKey::UNDERSCORE, InputKey::PLUS,
+
+    InputKey::LEFT_SQUARE_BRACKET, InputKey::RIGHT_SQUARE_BRACKET,
+    InputKey::LEFT_CURLY_BRACKET, InputKey::RIGHT_CURLY_BRACKET,
+
+    InputKey::COMMA, InputKey::PERIOD, InputKey::LESS_THAN, InputKey::GREATER_THAN,
+
+    InputKey::CAPS_LOCK, InputKey::ESCAPE, InputKey::ENTER, InputKey::TAB,
+    InputKey::BACKSPACE, InputKey::INSERT, InputKey::DELETE,
+
+    InputKey::RIGHT, InputKey::LEFT, InputKey::UP, InputKey::DOWN,
+
+    InputKey::SLASH, InputKey::QUESTION_MARK, InputKey::BACKSLASH, InputKey::PIPE,
+    InputKey::COLON, InputKey::SEMICOLON, InputKey::SINGLE_QUOTE, InputKey::DOUBLE_QUOTE,
+
+    InputKey::LEFT_SHIFT, InputKey::RIGHT_SHIFT,
+    InputKey::LEFT_CONTROL, InputKey::RIGHT_CONTROL,
+    InputKey::LEFT_ALT, InputKey::RIGHT_ALT,
+    InputKey::LEFT_SUPER, InputKey::RIGHT_SUPER,
+
+    InputKey::FUNCTION_KEY, InputKey::MENU_KEY,
+
+    InputKey::LEFT_MOUSE_BUTTON, InputKey::RIGHT_MOUSE_BUTTON,
+    InputKey::MIDDLE_MOUSE_BUTTON, InputKey::SCROLL_UP, InputKey::SCROLL_DOWN
+};
+
 std::string input_key_to_string(InputKey key, bool shift_pressed);
 
 // clang-format on
@@ -57,14 +103,13 @@ struct InputKeyState {
 
     std::unordered_map<InputKey, bool> input_key_to_is_pressed;
     std::unordered_map<InputKey, bool> input_key_to_just_pressed;
+    std::unordered_map<InputKey, bool> input_key_to_is_pressed_prev;
 
     InputKeyState() {
-        for (int i = 0; i < static_cast<int>(InputKey::DUMMY); ++i) {
-            input_key_to_is_pressed[static_cast<InputKey>(i)] = false;
-        }
-
-        for (int i = 0; i < static_cast<int>(InputKey::DUMMY); ++i) {
-            input_key_to_just_pressed[static_cast<InputKey>(i)] = false;
+        for (InputKey key : all_input_keys) {
+            input_key_to_is_pressed[key] = false;
+            input_key_to_just_pressed[key] = false;
+            input_key_to_is_pressed_prev[key] = false;
         }
     }
 
@@ -118,7 +163,7 @@ class ModalEditor {
     EditorMode current_mode = MOVE_AND_EDIT;
     TemporalBinarySignal mode_change_signal;
     Viewport &viewport;
-    InputKeyState iks;
+    InputKeyState iks = InputKeyState();
 
     ModalEditor(Viewport &viewport);
 

@@ -51,6 +51,24 @@
 #include <filesystem>
 #include <cstdio>
 
+#include <fstream>
+#include <iostream>
+#include <stddef.h> // for size_t
+#include <string>   // for char_traits, operator+, string, basic_string, to_string
+#include <vector>   // for vector
+
+#include "ftxui/component/component.hpp" // for CatchEvent, Renderer
+#include "ftxui/component/event.hpp"     // for Event
+#include "ftxui/component/mouse.hpp" // for Mouse, Mouse::Left, Mouse::Middle, Mouse::None, Mouse::Pressed, Mouse::Released, Mouse::Right, Mouse::WheelDown, Mouse::WheelUp
+#include "ftxui/component/screen_interactive.hpp" // for ScreenInteractive
+#include "ftxui/dom/elements.hpp"                 // for text, vbox, window, Element, Elements
+
+#include <ftxui/dom/elements.hpp>  // for Fit, canvas, operator|, border, Element
+#include <ftxui/screen/screen.hpp> // for Pixel, Screen
+
+#include "ftxui/dom/canvas.hpp"   // for Canvas
+#include "ftxui/screen/color.hpp" // for Color, Color::Red, Color::Blue, Color::Green, ftxui
+
 Colors colors;
 /**
  * Gets the directory of the executable.
@@ -146,157 +164,27 @@ std::string get_mode_string(EditorMode current_mode) {
     return "";
 }
 
-void render(Viewport &viewport, vertex_geometry::Grid &screen_grid, vertex_geometry::Grid &status_bar_grid,
-            vertex_geometry::Grid &command_bar_grid, std::string &command_bar_input,
-            TextureAtlas &monospaced_font_atlas, Batcher &batcher, TemporalBinarySignal &command_bar_input_signal,
-            int center_idx_x, int center_idx_y, int num_cols, int num_lines, int col_where_selection_mode_started,
-            int line_where_selection_mode_started, ShaderCache &shader_cache,
-            std::unordered_map<EditorMode, glm::vec4> &mode_to_cursor_color, double delta_time,
-            PeriodicSignal &one_second_signal_for_status_bar_time_update, ModalEditor &modal_editor) {
-
-    bool should_replace = viewport.moved_signal.has_just_changed() or viewport.buffer->edit_signal.has_just_changed();
-    auto changed_cells = viewport.get_changed_cells_since_last_tick();
-
-    // FILE BUFFER RENDER
-    int unique_idx = 0;
-    for (int line = 0; line < screen_grid.rows; line++) {
-        for (int col = 0; col < screen_grid.cols; col++) {
-            auto cell_rect = screen_grid.get_at(col, line);
-            vertex_geometry::IndexedVertices cell_ivs = cell_rect.get_ivs();
-            std::string cell_char(1, viewport.get_symbol_at(line, col));
-            auto cell_char_tcs = monospaced_font_atlas.get_texture_coordinates_of_sub_texture(cell_char);
-            // because the texture has the font inside the cell.
-            adjust_uv_coordinates_in_place(cell_char_tcs, 0.017, 0.045, 0.01);
-
-            /*if (viewport.has_cell_changed(line, col)) {*/
-            /*    batcher.absolute_position_with_solid_color_shader_batcher.queue_draw(unique_idx,
-             * cell_ivs.indices,*/
-            /*                                                                         cell_ivs.vertices, true);*/
-            /*}*/
-
-            batcher.absolute_position_textured_shader_batcher.queue_draw(
-                unique_idx, cell_ivs.indices, cell_ivs.vertices, cell_char_tcs, viewport.has_cell_changed(line, col));
-            unique_idx++;
-        }
-    }
-
-    // STATUS BAR
-    std::string mode_string =
-        get_mode_string(modal_editor.current_mode) + " | " + extract_filename(viewport.buffer->current_file_path) +
-        (viewport.buffer->modified_without_save ? "[+]" : "") + " | " + get_current_time_string() + " |";
-
-    bool should_update_status_bar = one_second_signal_for_status_bar_time_update.process_and_get_signal();
-
-    for (int line = 0; line < status_bar_grid.rows; line++) {
-        for (int col = 0; col < status_bar_grid.cols; col++) {
-
-            auto cell_rect = status_bar_grid.get_at(col, line);
-            vertex_geometry::IndexedVertices cell_ivs = cell_rect.get_ivs();
-
-            std::string cell_char;
-            if (col < mode_string.size()) {
-                cell_char = std::string(1, mode_string[col]);
-            } else {
-                cell_char = "-";
-            }
-
-            auto cell_char_tcs = monospaced_font_atlas.get_texture_coordinates_of_sub_texture(cell_char);
-
-            adjust_uv_coordinates_in_place(cell_char_tcs, 0.017, 0.045, 0.01);
-
-            batcher.absolute_position_textured_shader_batcher.queue_draw(
-                unique_idx, cell_ivs.indices, cell_ivs.vertices, cell_char_tcs, should_update_status_bar);
-            unique_idx++;
-        }
-    }
-
-    // command bar
-    for (int line = 0; line < command_bar_grid.rows; line++) {
-        for (int col = 0; col < command_bar_grid.cols; col++) {
-
-            auto cell_rect = command_bar_grid.get_at(col, line);
-            vertex_geometry::IndexedVertices cell_ivs = cell_rect.get_ivs();
-
-            std::string cell_char;
-            if (col < command_bar_input.size()) {
-                cell_char = std::string(1, command_bar_input[col]);
-            } else {
-                cell_char = " ";
-            }
-
-            auto cell_char_tcs = monospaced_font_atlas.get_texture_coordinates_of_sub_texture(cell_char);
-
-            adjust_uv_coordinates_in_place(cell_char_tcs, 0.017, 0.045, 0.01);
-
-            batcher.absolute_position_textured_shader_batcher.queue_draw(unique_idx, cell_ivs.indices,
-                                                                         cell_ivs.vertices, cell_char_tcs,
-                                                                         command_bar_input_signal.has_just_changed());
-            unique_idx++;
-        }
-    }
-
-    if (modal_editor.mode_change_signal.has_just_changed()) {
-        auto selected_color = mode_to_cursor_color[modal_editor.current_mode];
-        shader_cache.set_uniform(ShaderType::ABSOLUTE_POSITION_WITH_SOLID_COLOR, ShaderUniformVariable::RGBA_COLOR,
-                                 selected_color);
-    }
-
-    if (modal_editor.current_mode == VISUAL_SELECT) {
-        int visual_col_delta = -(viewport.active_buffer_col_under_cursor - col_where_selection_mode_started);
-        int visual_line_delta = -(viewport.active_buffer_line_under_cursor - line_where_selection_mode_started);
-
-        // Clamp the delta values to ensure they stay within the bounds of the grid
-        int clamped_visual_line_delta = std::clamp(center_idx_y + visual_line_delta, 0, num_lines - 1);
-        int clamped_visual_col_delta = std::clamp(center_idx_x + visual_col_delta, 0, num_cols - 1);
-
-        // Clamp the starting coordinates to ensure they stay within the bounds of the grid
-        int clamped_center_idx_y = std::clamp(center_idx_y, 0, num_lines - 1);
-        int clamped_center_idx_x = std::clamp(center_idx_x, 0, num_cols - 1);
-
-        // Call the function with the clamped values
-        std::vector<vertex_geometry::Rectangle> visually_selected_rectangles =
-            screen_grid.get_rectangles_in_bounding_box(clamped_visual_line_delta, clamped_visual_col_delta,
-                                                       clamped_center_idx_y, clamped_center_idx_x);
-
-        int obj_id = 1;
-        for (auto &rect : visually_selected_rectangles) {
-            auto rect_ivs = rect.get_ivs();
-            batcher.absolute_position_with_solid_color_shader_batcher.queue_draw(obj_id, rect_ivs.indices,
-                                                                                 rect_ivs.vertices, should_replace);
-            obj_id++;
-        }
-    } else { // regular render the cursor in the middle
-        auto center_rect = screen_grid.get_at(center_idx_x, center_idx_y);
-        auto center_ivs = center_rect.get_ivs();
-        batcher.absolute_position_with_solid_color_shader_batcher.queue_draw(0, center_ivs.indices,
-                                                                             center_ivs.vertices);
-    }
-
-    monospaced_font_atlas.bind_texture();
-    batcher.absolute_position_textured_shader_batcher.draw_everything();
-    batcher.absolute_position_with_solid_color_shader_batcher.draw_everything();
-}
-
-void setup_sdf_shader_uniforms(ShaderCache &shader_cache) {
-    auto text_color = glm::vec3(0.5, 0.5, 1);
-    float char_width = 0.5;
-    float edge_transition = 0.1;
-
-    shader_cache.use_shader_program(ShaderType::TRANSFORM_V_WITH_SIGNED_DISTANCE_FIELD_TEXT);
-
-    shader_cache.set_uniform(ShaderType::TRANSFORM_V_WITH_SIGNED_DISTANCE_FIELD_TEXT, ShaderUniformVariable::TRANSFORM,
-                             glm::mat4(1.0f));
-
-    shader_cache.set_uniform(ShaderType::TRANSFORM_V_WITH_SIGNED_DISTANCE_FIELD_TEXT, ShaderUniformVariable::RGB_COLOR,
-                             text_color);
-
-    shader_cache.set_uniform(ShaderType::TRANSFORM_V_WITH_SIGNED_DISTANCE_FIELD_TEXT,
-                             ShaderUniformVariable::CHARACTER_WIDTH, char_width);
-
-    shader_cache.set_uniform(ShaderType::TRANSFORM_V_WITH_SIGNED_DISTANCE_FIELD_TEXT,
-                             ShaderUniformVariable::EDGE_TRANSITION_WIDTH, edge_transition);
-    shader_cache.stop_using_shader_program();
-}
+// int unique_idx = 0;
+// for (int line = 0; line < screen_grid.rows; line++) {
+//     for (int col = 0; col < screen_grid.cols; col++) {
+//         auto cell_rect = screen_grid.get_at(col, line);
+//         vertex_geometry::IndexedVertices cell_ivs = cell_rect.get_ivs();
+//         std::string cell_char(1, viewport.get_symbol_at(line, col));
+//         auto cell_char_tcs = monospaced_font_atlas.get_texture_coordinates_of_sub_texture(cell_char);
+//         // because the texture has the font inside the cell.
+//         adjust_uv_coordinates_in_place(cell_char_tcs, 0.017, 0.045, 0.01);
+//
+//         /*if (viewport.has_cell_changed(line, col)) {*/
+//         /*    batcher.absolute_position_with_solid_color_shader_batcher.queue_draw(unique_idx,
+//          * cell_ivs.indices,*/
+//         /*                                                                         cell_ivs.vertices, true);*/
+//         /*}*/
+//
+//         batcher.absolute_position_textured_shader_batcher.queue_draw(
+//             unique_idx, cell_ivs.indices, cell_ivs.vertices, cell_char_tcs, viewport.has_cell_changed(line, col));
+//         unique_idx++;
+//     }
+// }
 
 template <typename Iterable>
 std::vector<std::pair<std::string, double>> find_matching_files(const std::string &query, const Iterable &files,
@@ -333,55 +221,6 @@ std::vector<std::pair<std::string, double>> find_matching_files(const std::strin
     }
 
     return results;
-}
-
-void update_graphical_search_results(std::string &fs_browser_search_query,
-                                     std::vector<std::filesystem::path> &searchable_files, FileBrowser &fb,
-                                     std::vector<int> &doids_for_textboxes_for_active_directory_for_later_removal,
-                                     UI &fs_browser, TemporalBinarySignal &search_results_changed_signal,
-                                     int &selected_file_doid, std::vector<std::string> &currently_matched_files) {
-    // Find matching files
-    int file_limit = 10;
-    std::vector<std::pair<std::string, double>> matching_files =
-        find_matching_files(fs_browser_search_query, searchable_files, file_limit);
-
-    // here we update the list in the UI, but the thing is the ui is screwed up rn so how to do?
-    // Display results
-    if (matching_files.empty()) {
-        std::cout << "No matching files found for query: \"" << fs_browser_search_query << "\"." << std::endl;
-    } else {
-        vertex_geometry::Grid file_rows(matching_files.size(), 1, fb.main_file_view_rect);
-        auto file_rects = file_rows.get_column(0);
-
-        // clear out old data
-        for (auto doid : doids_for_textboxes_for_active_directory_for_later_removal) {
-            fs_browser.remove_textbox(doid);
-        }
-        doids_for_textboxes_for_active_directory_for_later_removal.clear();
-
-        // TODO this is a bad way to do things, use the replace function later on
-        fs_browser.remove_textbox(selected_file_doid);
-        selected_file_doid = fs_browser.add_textbox(fs_browser_search_query, fb.file_selection_bar, colors.gray40);
-
-        // clear out old data
-
-        // note during this process we delete the old ones and load in the new, so no need to replace.
-        // TODO we need to ad da function to remove data from the batcher to make this "complete"
-        int i = 0;
-        std::cout << "Matching Files (Sorted by Similarity):" << std::endl;
-
-        // clear out old results
-
-        currently_matched_files.clear();
-        for (const auto &[file, score] : matching_files) {
-            std::cout << file << " (Score: " << score << ")" << std::endl;
-            int oid = fs_browser.add_textbox(file, file_rects.at(i), colors.grey);
-            doids_for_textboxes_for_active_directory_for_later_removal.push_back(oid);
-            currently_matched_files.push_back(file);
-            i++;
-        }
-        search_results_changed_signal.toggle_state();
-    }
 }
 
 void go_to_definition(JSON lsp_response, Viewport &viewport, LSPClient &lsp_client) {
@@ -476,6 +315,7 @@ bool is_integer(const std::string &str) {
     return (ss >> temp && ss.eof());
 }
 
+// deprecated in terminal verison
 InputKeyState create_input_key_state(InputState &input_state) {
     InputKeyState iks;
 
@@ -710,6 +550,253 @@ InputKeyState create_input_key_state(InputState &input_state) {
     return iks;
 }
 
+// stop doing this probably
+using namespace ftxui;
+
+struct EventHasher {
+    std::size_t operator()(const Event &event) const { return std::hash<std::string>()(event.input()); }
+};
+
+// We use a function that returns a reference to a static local map
+// instead of defining the map as a global/static variable directly.
+// This avoids the static initialization order problem, where Event::a
+// might not be fully initialized at the time the map is constructed.
+// By using a static local variable, we ensure that Event::a is fully
+// initialized before it's used as a key in the map.
+const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_to_input_keys() {
+    static const std::unordered_map<Event, std::vector<InputKey>, EventHasher> event_to_input_keys = {
+        // --- A ---
+        {Event::a, {InputKey::a}},
+        {Event::A, {InputKey::LEFT_SHIFT, InputKey::a}},
+        {Event::CtrlA, {InputKey::LEFT_CONTROL, InputKey::a}},
+        {Event::AltA, {InputKey::LEFT_ALT, InputKey::a}},
+        {Event::CtrlAltA, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::a}},
+
+        // --- B ---
+        {Event::b, {InputKey::b}},
+        {Event::B, {InputKey::LEFT_SHIFT, InputKey::b}},
+        {Event::CtrlB, {InputKey::LEFT_CONTROL, InputKey::b}},
+        {Event::AltB, {InputKey::LEFT_ALT, InputKey::b}},
+        {Event::CtrlAltB, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::b}},
+
+        // --- C ---
+        {Event::c, {InputKey::c}},
+        {Event::C, {InputKey::LEFT_SHIFT, InputKey::c}},
+        {Event::CtrlC, {InputKey::LEFT_CONTROL, InputKey::c}},
+        {Event::AltC, {InputKey::LEFT_ALT, InputKey::c}},
+        {Event::CtrlAltC, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::c}},
+
+        // --- D to Z ---
+        {Event::d, {InputKey::d}},
+        {Event::D, {InputKey::LEFT_SHIFT, InputKey::d}},
+        {Event::CtrlD, {InputKey::LEFT_CONTROL, InputKey::d}},
+        {Event::AltD, {InputKey::LEFT_ALT, InputKey::d}},
+        {Event::CtrlAltD, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::d}},
+
+        {Event::e, {InputKey::e}},
+        {Event::E, {InputKey::LEFT_SHIFT, InputKey::e}},
+        {Event::CtrlE, {InputKey::LEFT_CONTROL, InputKey::e}},
+        {Event::AltE, {InputKey::LEFT_ALT, InputKey::e}},
+        {Event::CtrlAltE, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::e}},
+
+        {Event::f, {InputKey::f}},
+        {Event::F, {InputKey::LEFT_SHIFT, InputKey::f}},
+        {Event::CtrlF, {InputKey::LEFT_CONTROL, InputKey::f}},
+        {Event::AltF, {InputKey::LEFT_ALT, InputKey::f}},
+        {Event::CtrlAltF, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::f}},
+
+        {Event::g, {InputKey::g}},
+        {Event::G, {InputKey::LEFT_SHIFT, InputKey::g}},
+        {Event::CtrlG, {InputKey::LEFT_CONTROL, InputKey::g}},
+        {Event::AltG, {InputKey::LEFT_ALT, InputKey::g}},
+        {Event::CtrlAltG, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::g}},
+
+        {Event::h, {InputKey::h}},
+        {Event::H, {InputKey::LEFT_SHIFT, InputKey::h}},
+        {Event::CtrlH, {InputKey::LEFT_CONTROL, InputKey::h}},
+        {Event::AltH, {InputKey::LEFT_ALT, InputKey::h}},
+        {Event::CtrlAltH, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::h}},
+
+        {Event::i, {InputKey::i}},
+        {Event::I, {InputKey::LEFT_SHIFT, InputKey::i}},
+        {Event::CtrlI, {InputKey::LEFT_CONTROL, InputKey::i}},
+        {Event::AltI, {InputKey::LEFT_ALT, InputKey::i}},
+        {Event::CtrlAltI, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::i}},
+
+        {Event::j, {InputKey::j}},
+        {Event::J, {InputKey::LEFT_SHIFT, InputKey::j}},
+        {Event::CtrlJ, {InputKey::LEFT_CONTROL, InputKey::j}},
+        {Event::AltJ, {InputKey::LEFT_ALT, InputKey::j}},
+        {Event::CtrlAltJ, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::j}},
+
+        {Event::k, {InputKey::k}},
+        {Event::K, {InputKey::LEFT_SHIFT, InputKey::k}},
+        {Event::CtrlK, {InputKey::LEFT_CONTROL, InputKey::k}},
+        {Event::AltK, {InputKey::LEFT_ALT, InputKey::k}},
+        {Event::CtrlAltK, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::k}},
+
+        {Event::l, {InputKey::l}},
+        {Event::L, {InputKey::LEFT_SHIFT, InputKey::l}},
+        {Event::CtrlL, {InputKey::LEFT_CONTROL, InputKey::l}},
+        {Event::AltL, {InputKey::LEFT_ALT, InputKey::l}},
+        {Event::CtrlAltL, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::l}},
+
+        {Event::m, {InputKey::m}},
+        {Event::M, {InputKey::LEFT_SHIFT, InputKey::m}},
+        {Event::CtrlM, {InputKey::LEFT_CONTROL, InputKey::m}},
+        {Event::AltM, {InputKey::LEFT_ALT, InputKey::m}},
+        {Event::CtrlAltM, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::m}},
+
+        {Event::n, {InputKey::n}},
+        {Event::N, {InputKey::LEFT_SHIFT, InputKey::n}},
+        {Event::CtrlN, {InputKey::LEFT_CONTROL, InputKey::n}},
+        {Event::AltN, {InputKey::LEFT_ALT, InputKey::n}},
+        {Event::CtrlAltN, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::n}},
+
+        {Event::o, {InputKey::o}},
+        {Event::O, {InputKey::LEFT_SHIFT, InputKey::o}},
+        {Event::CtrlO, {InputKey::LEFT_CONTROL, InputKey::o}},
+        {Event::AltO, {InputKey::LEFT_ALT, InputKey::o}},
+        {Event::CtrlAltO, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::o}},
+
+        {Event::p, {InputKey::p}},
+        {Event::P, {InputKey::LEFT_SHIFT, InputKey::p}},
+        {Event::CtrlP, {InputKey::LEFT_CONTROL, InputKey::p}},
+        {Event::AltP, {InputKey::LEFT_ALT, InputKey::p}},
+        {Event::CtrlAltP, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::p}},
+
+        {Event::q, {InputKey::q}},
+        {Event::Q, {InputKey::LEFT_SHIFT, InputKey::q}},
+        {Event::CtrlQ, {InputKey::LEFT_CONTROL, InputKey::q}},
+        {Event::AltQ, {InputKey::LEFT_ALT, InputKey::q}},
+        {Event::CtrlAltQ, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::q}},
+
+        {Event::r, {InputKey::r}},
+        {Event::R, {InputKey::LEFT_SHIFT, InputKey::r}},
+        {Event::CtrlR, {InputKey::LEFT_CONTROL, InputKey::r}},
+        {Event::AltR, {InputKey::LEFT_ALT, InputKey::r}},
+        {Event::CtrlAltR, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::r}},
+
+        {Event::s, {InputKey::s}},
+        {Event::S, {InputKey::LEFT_SHIFT, InputKey::s}},
+        {Event::CtrlS, {InputKey::LEFT_CONTROL, InputKey::s}},
+        {Event::AltS, {InputKey::LEFT_ALT, InputKey::s}},
+        {Event::CtrlAltS, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::s}},
+
+        {Event::t, {InputKey::t}},
+        {Event::T, {InputKey::LEFT_SHIFT, InputKey::t}},
+        {Event::CtrlT, {InputKey::LEFT_CONTROL, InputKey::t}},
+        {Event::AltT, {InputKey::LEFT_ALT, InputKey::t}},
+        {Event::CtrlAltT, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::t}},
+
+        {Event::u, {InputKey::u}},
+        {Event::U, {InputKey::LEFT_SHIFT, InputKey::u}},
+        {Event::CtrlU, {InputKey::LEFT_CONTROL, InputKey::u}},
+        {Event::AltU, {InputKey::LEFT_ALT, InputKey::u}},
+        {Event::CtrlAltU, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::u}},
+
+        {Event::v, {InputKey::v}},
+        {Event::V, {InputKey::LEFT_SHIFT, InputKey::v}},
+        {Event::CtrlV, {InputKey::LEFT_CONTROL, InputKey::v}},
+        {Event::AltV, {InputKey::LEFT_ALT, InputKey::v}},
+        {Event::CtrlAltV, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::v}},
+
+        {Event::w, {InputKey::w}},
+        {Event::W, {InputKey::LEFT_SHIFT, InputKey::w}},
+        {Event::CtrlW, {InputKey::LEFT_CONTROL, InputKey::w}},
+        {Event::AltW, {InputKey::LEFT_ALT, InputKey::w}},
+        {Event::CtrlAltW, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::w}},
+
+        {Event::x, {InputKey::x}},
+        {Event::X, {InputKey::LEFT_SHIFT, InputKey::x}},
+        {Event::CtrlX, {InputKey::LEFT_CONTROL, InputKey::x}},
+        {Event::AltX, {InputKey::LEFT_ALT, InputKey::x}},
+        {Event::CtrlAltX, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::x}},
+
+        {Event::y, {InputKey::y}},
+        {Event::Y, {InputKey::LEFT_SHIFT, InputKey::y}},
+        {Event::CtrlY, {InputKey::LEFT_CONTROL, InputKey::y}},
+        {Event::AltY, {InputKey::LEFT_ALT, InputKey::y}},
+        {Event::CtrlAltY, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::y}},
+
+        {Event::z, {InputKey::z}},
+        {Event::Z, {InputKey::LEFT_SHIFT, InputKey::z}},
+        {Event::CtrlZ, {InputKey::LEFT_CONTROL, InputKey::z}},
+        {Event::AltZ, {InputKey::LEFT_ALT, InputKey::z}},
+        {Event::CtrlAltZ, {InputKey::LEFT_CONTROL, InputKey::LEFT_ALT, InputKey::z}},
+
+        // --- Arrow keys ---
+        {Event::ArrowLeft, {InputKey::LEFT}},
+        {Event::ArrowLeftCtrl, {InputKey::LEFT_CONTROL, InputKey::LEFT}},
+        {Event::ArrowRight, {InputKey::RIGHT}},
+        {Event::ArrowRightCtrl, {InputKey::LEFT_CONTROL, InputKey::RIGHT}},
+        {Event::ArrowUp, {InputKey::UP}},
+        {Event::ArrowUpCtrl, {InputKey::LEFT_CONTROL, InputKey::UP}},
+        {Event::ArrowDown, {InputKey::DOWN}},
+        {Event::ArrowDownCtrl, {InputKey::LEFT_CONTROL, InputKey::DOWN}},
+
+        // --- Miscellaneous keys ---
+        {Event::Escape, {InputKey::ESCAPE}},
+        {Event::Return, {InputKey::ENTER}},
+        {Event::Tab, {InputKey::TAB}},
+        {Event::TabReverse, {InputKey::LEFT_SHIFT, InputKey::TAB}},
+        {Event::Backspace, {InputKey::BACKSPACE}},
+        {Event::Delete, {InputKey::DELETE}},
+        {Event::Insert, {InputKey::INSERT}},
+
+        // --- Navigation keys (replace DUMMY with correct keys) ---
+        // {Event::Home, {InputKey::HOME}},
+        // {Event::End, {InputKey::END}},
+        // {Event::PageUp, {InputKey::PAGE_UP}},
+        // {Event::PageDown, {InputKey::PAGE_DOWN}},
+        //
+        // // --- Function keys ---
+        // {Event::F1, {InputKey::F1}},
+        // {Event::F2, {InputKey::F2}},
+        // {Event::F3, {InputKey::F3}},
+        // {Event::F4, {InputKey::F4}},
+        // {Event::F5, {InputKey::F5}},
+        // {Event::F6, {InputKey::F6}},
+        // {Event::F7, {InputKey::F7}},
+        // {Event::F8, {InputKey::F8}},
+        // {Event::F9, {InputKey::F9}},
+        // {Event::F10, {InputKey::F10}},
+        // {Event::F11, {InputKey::F11}},
+        // {Event::F12, {InputKey::F12}},
+    };
+    return event_to_input_keys;
+}
+
+class FileLogger {
+  public:
+    FileLogger(const std::string &filename) {
+        // Open and truncate the file on start
+        file_.open(filename, std::ios::out | std::ios::trunc);
+    }
+
+    ~FileLogger() {
+        if (file_.is_open()) {
+            file_.close();
+        }
+    }
+
+    template <typename T> FileLogger &operator<<(const T &value) {
+        file_ << value;
+        file_.flush(); // Optional: flush immediately
+        return *this;
+    }
+
+    // Support std::endl and other manipulators
+    FileLogger &operator<<(std::ostream &(*manip)(std::ostream &)) {
+        file_ << manip;
+        file_.flush();
+        return *this;
+    }
+
+  private:
+    std::ofstream file_;
+};
+
 int main(int argc, char *argv[]) {
 
     // NOTE: because the lsp server runs in another thread asychronously
@@ -731,11 +818,11 @@ int main(int argc, char *argv[]) {
     LSPClient lsp_client("");
 #endif
 
-    std::thread thread([&] {
-        while (true) {
-            lsp_client.process_requests_and_responses();
-        }
-    });
+    // std::thread thread([&] {
+    //     while (true) {
+    //         lsp_client.process_requests_and_responses();
+    //     }
+    // });
 
     int saved_for_automatic_column_adjustment = 0;
     int saved_last_col_for_automatic_column_adjustment = 0;
@@ -753,55 +840,6 @@ int main(int argc, char *argv[]) {
 
     bool start_in_fullscreen = false;
 
-    Configuration::SectionKeyPairToConfigLogic section_key_to_config_logic = {
-        {{"graphics", "start_in_fullscreen"},
-         [&](const std::string &value) {
-             if (value == "true") {
-                 start_in_fullscreen = true;
-             }
-         }},
-        {{"graphics", "windowed_screen_width_px"},
-         [&](const std::string &value) {
-             if (is_integer(value)) {
-                 windowed_screen_width_px = std::stoi(value);
-                 std::cout << "set width to " << value << std::endl;
-             } else {
-                 std::cout << "Error: 'windowed_screen_width_px ' is not a valid integer: " << value << std::endl;
-             }
-         }},
-        {{"graphics", "windowed_screen_height_px"},
-         [&](const std::string &value) {
-             if (is_integer(value)) {
-                 windowed_screen_height_px = std::stoi(value);
-             } else {
-                 std::cout << "Error: 'windowed_screen_height_px ' is not a valid integer: " << value << std::endl;
-             }
-         }},
-        {{"viewport", "automatic_column_adjustment"},
-         [&](const std::string &value) {
-             if (value == "true") {
-                 automatic_column_adjustment = true;
-             }
-         }},
-        {{"viewport", "num_lines"},
-         [&](const std::string &value) {
-             if (is_integer(value)) {
-                 num_lines = std::stoi(value);
-             } else {
-                 std::cout << "Error: 'num_lines' is not a valid integer: " << value << std::endl;
-             }
-         }},
-        {{"viewport", "num_cols"},
-         [&](const std::string &value) {
-             if (is_integer(value)) {
-                 num_cols = std::stoi(value);
-             } else {
-                 std::cout << "Error: 'num_cols' is not a valid integer: " << value << std::endl;
-             }
-         }},
-        {{"user", "name"}, [&](const std::string &value) { username = value; }},
-    };
-
     std::filesystem::path config_path = "~/.tbx_cfg.ini";
     // Configuration config(config_path, section_key_to_config_logic);
 
@@ -817,28 +855,6 @@ int main(int argc, char *argv[]) {
     file_sink->set_level(spdlog::level::info);
     std::vector<spdlog::sink_ptr> sinks = {console_sink, file_sink};
 
-    Window window;
-    window.initialize_glfw_glad_and_return_window(windowed_screen_width_px, windowed_screen_height_px, "glfw window",
-                                                  start_in_fullscreen, false, false);
-
-    std::vector<ShaderType> requested_shaders = {
-        ShaderType::ABSOLUTE_POSITION_TEXTURED,
-        ShaderType::ABSOLUTE_POSITION_WITH_SOLID_COLOR,
-        ShaderType::TRANSFORM_V_WITH_SIGNED_DISTANCE_FIELD_TEXT,
-        ShaderType::ABSOLUTE_POSITION_WITH_COLORED_VERTEX,
-    };
-
-    ShaderCache shader_cache(requested_shaders, sinks);
-    Batcher batcher(shader_cache);
-    setup_sdf_shader_uniforms(shader_cache);
-
-    std::filesystem::path font_info_path =
-        std::filesystem::path("assets") / "fonts" / "times_64_sdf_atlas_font_info.json";
-    std::filesystem::path font_json_path = std::filesystem::path("assets") / "fonts" / "times_64_sdf_atlas.json";
-    std::filesystem::path font_image_path = std::filesystem::path("assets") / "fonts" / "times_64_sdf_atlas.png";
-    FontAtlas font_atlas(font_info_path.string(), font_json_path.string(), font_image_path.string(),
-                         windowed_screen_width_px, false, true);
-
     std::string search_dir = ".";
     std::vector<std::string> ignore_dirs = {"build", ".git", "__pycache__"};
     std::vector<std::filesystem::path> searchable_files = rec_get_all_files(search_dir, ignore_dirs);
@@ -849,75 +865,11 @@ int main(int argc, char *argv[]) {
     // FS BROWSER UI START
     std::vector<int> doids_for_textboxes_for_active_directory_for_later_removal;
 
-    UI fs_browser(font_atlas);
-    FileBrowser fb(1.5, 1.5);
-
-    std::string temp = "File Search";
-    std::string select = "select a file";
-    fs_browser.add_colored_rectangle(fb.background_rect, colors.gray10);
-    int curr_dir_doid = fs_browser.add_textbox(temp, fb.current_directory_rect, colors.gold);
-    fs_browser.add_colored_rectangle(fb.main_file_view_rect, colors.gray40);
-    int selected_file_doid = fs_browser.add_textbox(select, fb.file_selection_bar, colors.gray40);
-    // FS BROWSER UI END
-
-    // afbFS BROWSER UI START
-
-    std::vector<int> afb_doids_for_textboxes_for_active_directory_for_later_removal;
-    UI active_file_buffers_ui(font_atlas);
-    FileBrowser afb(1.5, 1.5);
-
-    std::string afb_label = "Active File Buffers";
-    std::string afb_select = "select a file";
-    std::vector<std::string> currently_matched_active_file_buffers;
-    active_file_buffers_ui.add_colored_rectangle(afb.background_rect, colors.gray10);
-    int afb_curr_dir_doid = active_file_buffers_ui.add_textbox(temp, afb.current_directory_rect, colors.gold);
-    active_file_buffers_ui.add_colored_rectangle(afb.main_file_view_rect, colors.gray40);
-    int afb_selected_file_doid = active_file_buffers_ui.add_textbox(select, afb.file_selection_bar, colors.gray40);
-    // afbFS BROWSER UI END
-
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    InputState input_state;
+    // InputState input_state;
     std::cout << "after constructor" << std::endl;
-
-    std::unordered_map<EditorMode, glm::vec4> mode_to_cursor_color = {
-        {MOVE_AND_EDIT, {.5, .5, .5, .5}},
-        {INSERT, {.8, .8, .5, .5}},
-        {VISUAL_SELECT, {.8, .5, .8, .5}},
-        {COMMAND, {.8, .5, .5, .5}},
-    };
-
-    shader_cache.set_uniform(ShaderType::ABSOLUTE_POSITION_WITH_SOLID_COLOR, ShaderUniformVariable::RGBA_COLOR,
-                             mode_to_cursor_color[MOVE_AND_EDIT]);
-
-    int width, height;
-
-    TextureAtlas monospaced_font_atlas("assets/font/font.json", "assets/font/font.png");
 
     int line_where_selection_mode_started = -1;
     int col_where_selection_mode_started = -1;
-    float status_bar_top_pos = -0.90;
-    float command_bar_top_pos = -0.95;
-    float top_line_pos = 1;
-
-    vertex_geometry::Rectangle file_buffer_rect = vertex_geometry::create_rectangle_from_corners(
-        glm::vec3(-1, top_line_pos, 0), glm::vec3(1, top_line_pos, 0), glm::vec3(-1, status_bar_top_pos, 0),
-        glm::vec3(1, status_bar_top_pos, 0));
-
-    vertex_geometry::Rectangle status_bar_rect = vertex_geometry::create_rectangle_from_corners(
-        glm::vec3(-1, status_bar_top_pos, 0), glm::vec3(1, status_bar_top_pos, 0),
-        glm::vec3(-1, command_bar_top_pos, 0), glm::vec3(1, command_bar_top_pos, 0));
-
-    vertex_geometry::Rectangle command_bar_rect = vertex_geometry::create_rectangle_from_corners(
-        glm::vec3(-1, command_bar_top_pos, 0), glm::vec3(1, command_bar_top_pos, 0), glm::vec3(-1, -1, 0),
-        glm::vec3(1, -1, 0));
-
-    /*vertex_geometry::Grid file_buffer_grid(num_lines, num_cols, */
-    vertex_geometry::Grid screen_grid(num_lines, num_cols, file_buffer_rect);
-    vertex_geometry::Grid status_bar_grid(1, num_cols, status_bar_rect);
-    vertex_geometry::Grid command_bar_grid(1, num_cols, command_bar_rect);
 
     int center_idx_x = num_cols / 2;
     int center_idx_y = num_lines / 2;
@@ -940,204 +892,111 @@ int main(int argc, char *argv[]) {
     ModalEditor modal_editor(viewport);
     modal_editor.switch_files(filename, true);
 
-    std::function<void(unsigned int)> char_callback = [&](unsigned int character_code) {
-        if (modal_editor.fs_browser_is_active) {
-        } else {
-            modal_editor.insert_character_in_insert_mode(character_code);
+    FileLogger fl("logs.txt");
 
-            if (modal_editor.current_mode == COMMAND) {
-                // Convert the character code to a character
-                char character = static_cast<char>(character_code);
-                modal_editor.command_bar_input += character;
-                modal_editor.command_bar_input_signal.toggle_state();
-            }
-        }
-    };
+    InputKeyState input_key_state = InputKeyState();
 
-    // Define the key callback
-    // TODO: these key callbacks need to be emptied out
-    std::function<void(int, int, int, int)> key_callback = [&](int key, int scancode, int action, int mods) {
-        // these events happen once when the key is pressed down, aka its non-repeating; a one time event
+    fl << "initial iks size: " << input_key_state.input_key_to_is_pressed.size() << std::endl;
 
-        if (action == GLFW_PRESS || action == GLFW_RELEASE) {
-            Key &active_key = *input_state.glfw_code_to_key.at(key);
-            bool is_pressed = (action == GLFW_PRESS);
-            active_key.pressed_signal.set_signal(is_pressed);
+    auto event_to_input_keys = get_event_to_input_keys();
 
-            Key &enum_grabbed_key = *input_state.key_enum_to_object.at(active_key.key_enum);
-
-            if (modal_editor.current_mode == MOVE_AND_EDIT && modal_editor.command_bar_input == ":") {
-                modal_editor.command_bar_input = "";
-                modal_editor.command_bar_input_signal.toggle_state();
-            }
-
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                if (action == GLFW_PRESS) {
-                    if (active_key.key_type == KeyType::ALPHA or active_key.key_type == KeyType::NUMERIC or
-                        active_key.string_repr == "escape") {
-
-                        std::string key_str = active_key.string_repr;
-
-                        // print out the key that was just pressed
-                        std::cout << "key_str:" << key_str << std::endl;
-
-                        if (key_str == "u" && viewport.buffer->get_last_deleted_content() == "") {
-                            modal_editor.command_bar_input = "Ain't no more history!";
-                            modal_editor.command_bar_input_signal.toggle_state();
-                        }
-                    }
-                    if (active_key.key_enum == EKey::ESCAPE or active_key.key_enum == EKey::CAPS_LOCK) {
-                        modal_editor.potential_automatic_command = "";
-                    }
-                }
-            }
-        }
-
-        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-            switch (key) {
-            case GLFW_KEY_CAPS_LOCK:
-                modal_editor.current_mode = MOVE_AND_EDIT;
-                modal_editor.mode_change_signal.toggle_state();
-                break;
-            case GLFW_KEY_BACKSPACE:
-                if (modal_editor.fs_browser_is_active) {
-                    std::cout << "search backspace" << std::endl;
-                    modal_editor.fs_browser_search_query =
-                        modal_editor.fs_browser_search_query.empty()
-                            ? ""
-                            : modal_editor.fs_browser_search_query.substr(
-                                  0, modal_editor.fs_browser_search_query.size() - 1);
-                    update_graphical_search_results(modal_editor.fs_browser_search_query, searchable_files, fb,
-                                                    doids_for_textboxes_for_active_directory_for_later_removal,
-                                                    fs_browser, modal_editor.search_results_changed_signal,
-                                                    selected_file_doid, modal_editor.currently_matched_files);
-                } else {
-                    std::cout << "non seach backspace" << std::endl;
-                    if (modal_editor.current_mode == INSERT) {
-                        auto td = viewport.backspace_at_active_position();
-                        if (td != EMPTY_TEXT_DIFF) {
-                            lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                        }
-                    }
-                }
-                break;
-            case GLFW_KEY_TAB:
-                if (modal_editor.current_mode == INSERT) {
-                    auto td = viewport.insert_tab_at_cursor();
-                    if (td != EMPTY_TEXT_DIFF) {
-                        lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                    }
-                }
-                break;
-            case GLFW_KEY_Y:
-                if (modal_editor.current_mode == VISUAL_SELECT) {
-                    std::string curr_sel = viewport.buffer->get_bounding_box_string(
-                        line_where_selection_mode_started, col_where_selection_mode_started,
-                        viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
-                    glfwSetClipboardString(window.glfw_window, curr_sel.c_str());
-                }
-                break;
-            default:
-                break;
-            }
-        }
-    };
-    std::function<void(double, double)> mouse_pos_callback = [](double _, double _1) {};
-    std::function<void(int, int, int)> mouse_button_callback = [](int _, int _1, int _2) {};
-    GLFWLambdaCallbackManager glcm(window.glfw_window, char_callback, key_callback, mouse_pos_callback,
-                                   mouse_button_callback);
-
-    double last_time = 0.0;
-    double delta_time = 0.0;
-    while (!glfwWindowShouldClose(window.glfw_window)) {
-        double current_time = glfwGetTime();
-        delta_time = current_time - last_time;
-        last_time = current_time;
-
-        /*lsp_client.process_requests_and_responses();*/
-
-        glfwGetFramebufferSize(window.glfw_window, &width, &height);
-
-        glViewport(0, 0, width, height);
-
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        render(viewport, screen_grid, status_bar_grid, command_bar_grid, modal_editor.command_bar_input,
-               monospaced_font_atlas, batcher, modal_editor.command_bar_input_signal, center_idx_x, center_idx_y,
-               num_cols, num_lines, col_where_selection_mode_started, line_where_selection_mode_started, shader_cache,
-               mode_to_cursor_color, delta_time, one_second_signal_for_status_bar_time_update, modal_editor);
-
-        // render UI stuff
-
-        if (modal_editor.fs_browser_is_active) {
-
-            for (auto &cb : fs_browser.get_colored_boxes()) {
-                batcher.absolute_position_with_colored_vertex_shader_batcher.queue_draw(
-                    cb.id, cb.ivpsc.indices, cb.ivpsc.xyz_positions, cb.ivpsc.rgb_colors);
-            }
-
-            for (auto &tb : fs_browser.get_text_boxes()) {
-                bool should_change = modal_editor.search_results_changed_signal.has_just_changed();
-                batcher.absolute_position_with_colored_vertex_shader_batcher.queue_draw(
-                    tb.id, tb.background_ivpsc.indices, tb.background_ivpsc.xyz_positions,
-                    tb.background_ivpsc.rgb_colors);
-
-                batcher.transform_v_with_signed_distance_field_text_shader_batcher.queue_draw(
-                    tb.id, tb.text_drawing_data.indices, tb.text_drawing_data.xyz_positions,
-                    tb.text_drawing_data.texture_coordinates, tb.modified_signal.has_just_changed());
-            }
-
-            for (auto &tb : fs_browser.get_clickable_text_boxes()) {
-                batcher.absolute_position_with_colored_vertex_shader_batcher.queue_draw(
-                    tb.id, tb.ivpsc.indices, tb.ivpsc.xyz_positions, tb.ivpsc.rgb_colors,
-                    tb.modified_signal.has_just_changed());
-
-                batcher.transform_v_with_signed_distance_field_text_shader_batcher.queue_draw(
-                    tb.id, tb.text_drawing_data.indices, tb.text_drawing_data.xyz_positions,
-                    tb.text_drawing_data.texture_coordinates);
-            }
-
-            /*glDisable(GL_DEPTH_TEST);*/
-            font_atlas.texture_atlas.bind_texture();
-            batcher.absolute_position_with_colored_vertex_shader_batcher.draw_everything();
-            batcher.transform_v_with_signed_distance_field_text_shader_batcher.draw_everything();
-            /*glEnable(GL_DEPTH_TEST);*/
-        }
-
-        // render UI stuff
-
-        // we must save the previous viewport screen before the screen is modified that way
-        // the changes made will be compared against the previous screen state
-        viewport.save_previous_viewport_screen();
-
-        // run_key_logic(input_state, viewport, line_where_selection_mode_started, col_where_selection_mode_started,
-        //               command_bar_input, command_bar_input_signal, window, searchable_files, fb,
-        //               doids_for_textboxes_for_active_directory_for_later_removal, fs_browser, selected_file_doid,
-        //               insert_mode_signal, modal_editor, lsp_callbacks_to_run_synchronously);
-
-        modal_editor.iks = create_input_key_state(input_state);
-        modal_editor.run_key_logic(searchable_files);
-
-        // for (auto &callback : lsp_callbacks_to_run_synchronously) {
-        //     std::cout << "running callback" << std::endl;
-        //     callback();
-        // }
-        // lsp_callbacks_to_run_synchronously.clear();
-
-        if (automatic_column_adjustment) {
-            snap_to_end_of_line_while_navigating(viewport, saved_for_automatic_column_adjustment,
-                                                 saved_last_col_for_automatic_column_adjustment,
-                                                 saved_last_line_for_automatic_column_adjustment);
-        }
-        TemporalBinarySignal::process_all();
-        glfwSwapBuffers(window.glfw_window);
-        glfwPollEvents();
+    auto it = event_to_input_keys.find(Event::a);
+    if (it != event_to_input_keys.end()) {
+        fl << "we have 'a'" << std::endl;
+    } else {
+        fl << "we do not have 'a'" << std::endl;
     }
 
-    thread.detach();
+    fl << "lookup input: " << Event::a.input() << std::endl;
+    fl << "key input: " << event_to_input_keys.begin()->first.input() << std::endl;
 
-    glfwDestroyWindow(window.glfw_window);
+    // auto screen = ScreenInteractive::TerminalOutput();
+    auto screen = ScreenInteractive::Fullscreen();
 
-    glfwTerminate();
+    // auto c = Canvas(num_cols, num_lines);
+    // c.DrawPointCircle(5, 5, 5);
+
+    std::thread animation_thread([&] {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // ~60 FPS
+            screen.PostEvent(Event::Custom);
+        }
+    });
+
+    std::vector<Event> keys;
+
+    int inc = 0;
+    auto component = Container::Vertical({
+        Renderer([&] {
+            inc++;
+
+            auto c = Canvas(num_cols * 2, num_lines * 4); // Match canvas size to your drawing area
+
+            for (int line = 0; line < num_lines; line++) {
+                for (int col = 0; col < num_cols; col++) {
+                    std::string cell_char(1, viewport.get_symbol_at(line, col));
+                    c.DrawText(col * 2, line * 4, cell_char, [](Pixel &p) { p.foreground_color = Color::Yellow; });
+                }
+            }
+
+            fl << "doing circle x at: " << inc % (num_cols * 2) << std::endl;
+            c.DrawPointCircle(inc % (num_cols * 2), 1, 2); // Prevent runaway inc value
+
+            auto just_pressed_keys = input_key_state.get_keys_just_pressed_this_tick();
+            fl << "in Renderer Just pressed keys this tick:";
+            for (const auto &key_str : just_pressed_keys) {
+                fl << " " << key_str;
+            }
+            fl << std::endl;
+
+            input_key_state.input_key_to_is_pressed_prev = input_key_state.input_key_to_is_pressed;
+            for (auto &[key, is_pressed] : input_key_state.input_key_to_is_pressed) {
+                is_pressed = false;
+            }
+
+            return canvas(std::move(c)) | border;
+        }),
+    });
+
+    component |= CatchEvent([&](Event event) {
+        keys.push_back(event);
+
+        auto it = event_to_input_keys.find(event);
+        if (it != event_to_input_keys.end()) {
+            for (const auto &key : it->second) {
+                auto str = input_key_to_string(key, false);
+                input_key_state.input_key_to_is_pressed[key] = true;
+
+                bool was_pressed = input_key_state.input_key_to_is_pressed_prev[key];
+                input_key_state.input_key_to_just_pressed[key] =
+                    input_key_state.input_key_to_is_pressed[key] && !was_pressed;
+            }
+            fl << std::endl;
+        } else {
+            fl << "No mapping found for event: " << std::endl;
+        }
+
+        // render to the canvas
+
+        // fl << "post event" << std::endl;
+        // screen.PostEvent(Event::Custom);
+        // screen.RequestAnimationFrame();
+
+        modal_editor.iks = input_key_state;
+
+        std::vector<std::filesystem::path> dummy;
+
+        viewport.save_previous_viewport_screen();
+        modal_editor.run_key_logic(dummy);
+
+        TemporalBinarySignal::process_all();
+        return false;
+    });
+
+    screen.Loop(component);
+    animation_thread.join();
+
+    // thread.detach();
+
     exit(EXIT_SUCCESS);
 }

@@ -133,7 +133,7 @@ char Viewport::get_symbol_at(int line, int col) const {
             if (line_number_index >= 0) {
                 return line_number[line_number_index];
             } else {
-                return ' '; // Placeholder for out-of-bounds negative positions
+                return 'x'; // Placeholder for out-of-bounds negative positions
             }
         } else {
             // Handle non-negative column indices: Render buffer content
