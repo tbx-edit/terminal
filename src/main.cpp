@@ -146,7 +146,6 @@ void adjust_uv_coordinates_in_place(std::vector<glm::vec2> &uv_coords, float hor
     uv_coords[3].y += top_push;
 }
 
-
 // int unique_idx = 0;
 // for (int line = 0; line < screen_grid.rows; line++) {
 //     for (int col = 0; col < screen_grid.cols; col++) {
@@ -718,6 +717,8 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
         {Event::ArrowDown, {InputKey::DOWN}},
         {Event::ArrowDownCtrl, {InputKey::LEFT_CONTROL, InputKey::DOWN}},
 
+        {Event::Character(" "), {InputKey::SPACE}},
+
         // --- Miscellaneous keys ---
         {Event::Escape, {InputKey::ESCAPE}},
         {Event::Return, {InputKey::ENTER}},
@@ -806,7 +807,6 @@ int main(int argc, char *argv[]) {
     //         lsp_client.process_requests_and_responses();
     //     }
     // });
-
 
     // auto screen = ScreenInteractive::TerminalOutput();
     auto screen = ScreenInteractive::Fullscreen();
@@ -901,7 +901,6 @@ int main(int argc, char *argv[]) {
     fl << "lookup input: " << Event::a.input() << std::endl;
     fl << "key input: " << event_to_input_keys.begin()->first.input() << std::endl;
 
-
     // auto c = Canvas(num_cols, num_lines);
     // c.DrawPointCircle(5, 5, 5);
 
@@ -914,10 +913,19 @@ int main(int argc, char *argv[]) {
 
     std::vector<Event> keys;
 
-    int inc = 0;
     auto component = Container::Vertical({
         Renderer([&] {
-            inc++;
+            num_lines = screen.dimy() - 4; // space for status bar
+            num_cols = screen.dimx();
+
+            modal_editor.viewport.num_cols = num_cols;
+            modal_editor.viewport.num_lines = num_lines;
+
+            modal_editor.viewport.cursor_col_offset = num_cols / 2;
+            modal_editor.viewport.cursor_line_offset = num_lines / 2;
+
+            center_line = num_lines / 2;
+            center_col = num_cols / 2;
 
             auto c = Canvas(num_cols * 2, num_lines * 4); // Match canvas size to your drawing area
 
@@ -933,12 +941,6 @@ int main(int argc, char *argv[]) {
                     });
                 }
             }
-
-            fl << "command mode: " << modal_editor.get_mode_string() << std::endl;
-            fl << "command bar: " << modal_editor.command_bar_input << std::endl;
-
-            fl << "doing circle x at: " << inc % (num_cols * 2) << std::endl;
-            c.DrawPointCircle(inc % (num_cols * 2), 1, 2); // Prevent runaway inc value
 
             auto just_pressed_keys = input_key_state.get_keys_just_pressed_this_tick();
             fl << "in Renderer Just pressed keys this tick:";
@@ -956,12 +958,87 @@ int main(int argc, char *argv[]) {
                 is_pressed = false;
             }
 
-            return canvas(std::move(c)) | border;
+            // Status Bar
+            std::string mode_str;
+
+            switch (modal_editor.current_mode) {
+            case MOVE_AND_EDIT:
+                mode_str = " -- NORMAL -- ";
+                break;
+            case INSERT:
+                mode_str = " -- INSERT -- ";
+                break;
+            case VISUAL_SELECT:
+                mode_str = " -- VISUAL SELECT -- ";
+                break;
+            case COMMAND:
+                mode_str = " -- COMMAND -- ";
+                break;
+            }
+
+            // std::string save_str = show_saved_msg ? "✅ Saved" : "";
+            std::string save_str = "save placeholder";
+            // Clock Stuff v
+            auto now = std::chrono::system_clock::now();
+            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+            std::tm *now_tm = std::localtime(&now_time_t);
+            int time_hours = now_tm->tm_hour;
+            int time_minutes = now_tm->tm_min;
+            int time_seconds = now_tm->tm_sec;
+            std::string seconds_buffer;
+            std::string minutes_buffer;
+            if (time_seconds < 10)
+                seconds_buffer = ":0";
+            else
+                seconds_buffer = ":";
+            if (time_minutes < 10)
+                minutes_buffer = ":0";
+            else
+                minutes_buffer = ":";
+            // Clock Stuff ^
+            //
+            unsigned int num_lines_in_current_file = modal_editor.viewport.buffer->line_count();
+
+            int percentage_vertical_scroll =
+                (modal_editor.viewport.active_buffer_line_under_cursor + 1) * 100 / num_lines_in_current_file;
+            // int percentage_horizontal_scroll = (modal_editor.viewport.active_buffer_col_under_cursor + 1) * 100 /
+            // (lines[cursor_row].size() + 1);
+            int percentage_horizontal_scroll = 0;
+            auto status = hbox({
+                text(mode_str) | color(Color::Cyan),
+                text("  "),
+                text(save_str) | color(Color::Green),
+                text(" "),
+                text(std::to_string(percentage_vertical_scroll)) | color(Color::Cyan),
+                text("% "),
+                text(std::to_string(modal_editor.viewport.active_buffer_line_under_cursor + 1)) | color(Color::Cyan),
+                text("/"),
+                text(std::to_string(num_lines_in_current_file)) | color(Color::Green),
+                text(" - "),
+                text(std::to_string(percentage_horizontal_scroll)) | color(Color::Cyan),
+                text("% "),
+                text(std::to_string(modal_editor.viewport.active_buffer_col_under_cursor + 1)) | color(Color::Cyan),
+                // text("/"), text(std::to_string(lines[cursor_row].size() + 1)) | color(Color::Green),
+                filler(),
+                text(std::to_string(time_hours)),
+                text(minutes_buffer),
+                text(std::to_string(time_minutes)),
+                text(seconds_buffer),
+                text(std::to_string(time_seconds)),
+                text(" "),
+                text(filename),
+            });
+
+            return vbox(canvas(std::move(c)) | border, status);
         }),
     });
 
     component |= CatchEvent([&](Event event) {
         keys.push_back(event);
+
+        if (event == Event::Delete) {
+            fl << "got delete" << std::endl;
+        }
 
         auto it = event_to_input_keys.find(event);
         if (it != event_to_input_keys.end()) {
@@ -991,6 +1068,12 @@ int main(int argc, char *argv[]) {
 
         viewport.save_previous_viewport_screen();
         modal_editor.run_key_logic(dummy);
+
+        auto keys = modal_editor.iks.get_keys_just_pressed_this_tick();
+
+        if (std::find(keys.begin(), keys.end(), " ") != keys.end()) {
+            fl << "GOT SPACE" << std::endl;
+        }
 
         TemporalBinarySignal::process_all();
         return false;

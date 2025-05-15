@@ -18,6 +18,7 @@ std::string ModalEditor::get_mode_string() {
     return "";
 }
 
+// the returned string has length one, guarenteed
 std::string input_key_to_string(InputKey key, bool shift_pressed) {
     switch (key) {
     case InputKey::a:
@@ -667,9 +668,10 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
 
     // auto keys_just_pressed_this_tick = input_state.get_keys_just_pressed_this_tick();
     auto keys_just_pressed_this_tick = iks.get_keys_just_pressed_this_tick();
-    if (not fs_browser_is_active) {
-        if (current_mode != INSERT) {
 
+    if (not fs_browser_is_active) {
+
+        if (current_mode != INSERT) {
             // NOTE: if keys just pressed this tick is has length greater or equal to 2, then that implies two keys were
             // pressed ina single tick, should be rare enough to ignore, but note that it may be a cause for later bugs.
             if (not keys_just_pressed_this_tick.empty()) {
@@ -688,6 +690,7 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
                 potential_regex_command = "";
             }
 
+            // these should be moved into the regex stuff?
             bool key_pressed_based_command_run = false;
             if (current_mode == MOVE_AND_EDIT) {
                 if (ip(InputKey::LEFT_CONTROL)) {
@@ -823,6 +826,19 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
 
             if (key_pressed_based_command_run) {
                 potential_regex_command = "";
+            }
+        } else { // in insert mode
+            for (const auto &key : keys_just_pressed_this_tick) {
+                char c = key[0]; // safely get the first (and only) character
+                viewport.insert_character_at_cursor(c);
+            }
+
+            if (iks.is_just_pressed(InputKey::BACKSPACE)) {
+                viewport.backspace_at_active_position();
+            }
+
+            if (iks.is_just_pressed(InputKey::ENTER)) {
+                viewport.create_new_line_at_cursor_and_scroll_down();
             }
         }
     } else { // otherwise we are in the case that the file browser is active

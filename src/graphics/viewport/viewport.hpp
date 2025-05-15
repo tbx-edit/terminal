@@ -79,9 +79,10 @@ class Viewport {
     int num_lines;
     int num_cols;
 
-  private:
     int cursor_line_offset;
     int cursor_col_offset;
+
+  private:
 
     std::vector<std::vector<char>> previous_viewport_screen; ///< Stores the previous state of the viewport.
 };
