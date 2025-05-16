@@ -170,7 +170,6 @@ class ModalEditor {
 
     // main stuff end
 
-    std::string potential_automatic_command;
     std::string command_bar_input;
     TemporalBinarySignal command_bar_input_signal;
     TemporalBinarySignal insert_mode_signal;
@@ -230,6 +229,8 @@ class ModalEditor {
     void switch_to_cpp_source_file();
     void switch_to_hpp_source_file();
 
+    bool run_command_bar_command();
+    bool run_non_regex_based_move_and_edit_commands();
     void run_key_logic(std::vector<std::filesystem::path> &searchable_files);
 };
 

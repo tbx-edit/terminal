@@ -657,6 +657,146 @@ void ModalEditor::switch_to_hpp_source_file() {
     }
 }
 
+bool ModalEditor::run_non_regex_based_move_and_edit_commands() {
+    bool key_pressed_based_command_run = false;
+    std::function<bool(InputKey)> jp = [&](InputKey k) { return iks.is_just_pressed(k); };
+    std::function<bool(InputKey)> ip = [&](InputKey k) { return iks.is_pressed(k); };
+    if (ip(InputKey::LEFT_CONTROL)) {
+        if (jp(InputKey::u)) {
+            viewport.scroll(-5, 0);
+            key_pressed_based_command_run = true;
+        }
+        if (jp(InputKey::d)) {
+            viewport.scroll(5, 0);
+            key_pressed_based_command_run = true;
+        }
+        if (jp(InputKey::o)) {
+            viewport.history.go_back();
+            auto [file_path, line, col] = viewport.history.get_current_history_flc();
+            // std::cout << "going back to: " << file_path << line << col << std::endl;
+            if (file_path != viewport.buffer->current_file_path) {
+                switch_files(file_path, false);
+            }
+            viewport.set_active_buffer_line_col_under_cursor(line, col, false);
+        }
+        if (jp(InputKey::i)) {
+            viewport.history.go_forward();
+            auto [file_path, line, col] = viewport.history.get_current_history_flc();
+            // std::cout << "going forward to: " << file_path << line << col << std::endl;
+            if (file_path != viewport.buffer->current_file_path) {
+                switch_files(file_path, false);
+            }
+            viewport.set_active_buffer_line_col_under_cursor(line, col, false);
+        }
+    }
+    if (ip(InputKey::LEFT_SHIFT)) {
+
+        if (jp(InputKey::m)) {
+            int last_line_index = (viewport.buffer->line_count() - 1) / 2;
+            viewport.set_active_buffer_line_under_cursor(last_line_index);
+            key_pressed_based_command_run = true;
+        }
+    }
+
+    if (jp(InputKey::LEFT_SHIFT)) {
+        if (jp(InputKey::n)) {
+            // Check if there are any search results
+            if (!search_results.empty()) {
+                // Move to the previous search result, using forced positive modulo
+                current_search_index = (current_search_index - 1 + search_results.size()) % search_results.size();
+                TextRange sti = search_results[current_search_index];
+                viewport.set_active_buffer_line_col_under_cursor(sti.start_line, sti.start_col);
+
+            } else {
+                std::cout << "No search results found" << std::endl;
+            }
+            key_pressed_based_command_run = true;
+        }
+    } else {
+        if (jp(InputKey::n)) {
+            std::cout << "next one" << std::endl;
+
+            if (!search_results.empty()) {
+                current_search_index = (current_search_index + 1) % search_results.size();
+                TextRange sti = search_results[current_search_index];
+                viewport.set_active_buffer_line_col_under_cursor(sti.start_line, sti.start_col);
+            } else {
+                std::cout << "No search results found" << std::endl;
+            }
+
+            key_pressed_based_command_run = true;
+        }
+    }
+    if (ip(InputKey::LEFT_SHIFT)) {
+        if (jp(InputKey::SEMICOLON)) {
+            current_mode = COMMAND;
+            command_bar_input = ":";
+            command_bar_input_signal.toggle_state();
+            mode_change_signal.toggle_state();
+
+            key_pressed_based_command_run = true;
+        }
+    }
+    if (jp(InputKey::SLASH)) {
+        current_mode = COMMAND;
+        command_bar_input = "/";
+        command_bar_input_signal.toggle_state();
+        mode_change_signal.toggle_state();
+        key_pressed_based_command_run = true;
+    }
+
+    return key_pressed_based_command_run;
+}
+
+bool ModalEditor::run_command_bar_command() {
+    std::function<bool(InputKey)> jp = [&](InputKey k) { return iks.is_just_pressed(k); };
+    std::function<bool(InputKey)> ip = [&](InputKey k) { return iks.is_pressed(k); };
+    bool key_pressed_based_command_run = false;
+
+    // only doing this cause space isn't handled by the char callback
+    if (jp(InputKey::ENTER)) {
+        if (command_bar_input == ":w") {
+            viewport.buffer->save_file();
+            key_pressed_based_command_run = true;
+        }
+        if (command_bar_input == ":q") {
+            // glfwSetWindowShouldClose(window.glfw_window, true);
+            key_pressed_based_command_run = true;
+        }
+
+        if (command_bar_input == ":tfs") {
+            // window.toggle_fullscreen();
+            key_pressed_based_command_run = true;
+        }
+        if (command_bar_input.front() == '/') {
+            std::string search_request = command_bar_input.substr(1); // remove the "/"
+            search_results = viewport.buffer->find_forward_matches(
+                viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, search_request);
+            if (!search_results.empty()) {
+                std::cout << "search active true now" << std::endl;
+                current_search_index = 0; // start from the first result
+
+                // Print out matches
+                std::cout << "Search Results for '" << search_request << "':\n";
+                for (const auto &result : search_results) {
+                    // Assuming SubTextIndex has `line` and `col` attributes for position
+                    std::cout << "Match at Line: " << result.start_line << ", Column: " << result.start_col << "\n";
+                    // If you want to print the actual text matched:
+                    /*std::cout << "Matched text: " << matched_text << "\n";*/
+                }
+                // You may want to highlight the first search result here
+                // highlight_search_result(search_results[current_search_index]);
+            }
+        }
+
+        command_bar_input = "";
+        command_bar_input_signal.toggle_state();
+        current_mode = MOVE_AND_EDIT;
+        mode_change_signal.toggle_state();
+    }
+    return key_pressed_based_command_run;
+}
+
 void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_files) {
 
     // less keystrokes please:
@@ -669,17 +809,38 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
     // auto keys_just_pressed_this_tick = input_state.get_keys_just_pressed_this_tick();
     auto keys_just_pressed_this_tick = iks.get_keys_just_pressed_this_tick();
 
+    // input switch [[
+    switch (current_mode) {
+    case MOVE_AND_EDIT:
+        for (const auto &key : keys_just_pressed_this_tick) {
+            potential_regex_command += key;
+        }
+        break;
+    case INSERT:
+        for (const auto &key : keys_just_pressed_this_tick) {
+            char c = key[0]; // safely get the first (and only) character
+            viewport.insert_character_at_cursor(c);
+        }
+        break;
+    case VISUAL_SELECT:
+        for (const auto &key : keys_just_pressed_this_tick) {
+            potential_regex_command += key;
+        }
+        break;
+    case COMMAND:
+        for (const auto &key : keys_just_pressed_this_tick) {
+            command_bar_input += key;
+        }
+        break;
+    }
+    // input switch ]]
+
+    // TODO: this should not be the outermost if statement
     if (not fs_browser_is_active) {
 
         if (current_mode != INSERT) {
             // NOTE: if keys just pressed this tick is has length greater or equal to 2, then that implies two keys were
             // pressed ina single tick, should be rare enough to ignore, but note that it may be a cause for later bugs.
-            if (not keys_just_pressed_this_tick.empty()) {
-                for (const auto &key : keys_just_pressed_this_tick) {
-                    potential_regex_command += key;
-                }
-                // std::cout << "prc: " << potential_regex_command << std::endl;
-            }
 
             bool command_was_run = rcr.potentially_run_command(potential_regex_command);
             if (command_was_run) {
@@ -693,145 +854,23 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
             // these should be moved into the regex stuff?
             bool key_pressed_based_command_run = false;
             if (current_mode == MOVE_AND_EDIT) {
-                if (ip(InputKey::LEFT_CONTROL)) {
-                    if (jp(InputKey::u)) {
-                        viewport.scroll(-5, 0);
-                        key_pressed_based_command_run = true;
-                    }
-                    if (jp(InputKey::d)) {
-                        viewport.scroll(5, 0);
-                        key_pressed_based_command_run = true;
-                    }
-                    if (jp(InputKey::o)) {
-                        viewport.history.go_back();
-                        auto [file_path, line, col] = viewport.history.get_current_history_flc();
-                        // std::cout << "going back to: " << file_path << line << col << std::endl;
-                        if (file_path != viewport.buffer->current_file_path) {
-                            switch_files(file_path, false);
-                        }
-                        viewport.set_active_buffer_line_col_under_cursor(line, col, false);
-                    }
-                    if (jp(InputKey::i)) {
-                        viewport.history.go_forward();
-                        auto [file_path, line, col] = viewport.history.get_current_history_flc();
-                        // std::cout << "going forward to: " << file_path << line << col << std::endl;
-                        if (file_path != viewport.buffer->current_file_path) {
-                            switch_files(file_path, false);
-                        }
-                        viewport.set_active_buffer_line_col_under_cursor(line, col, false);
-                    }
-                }
-                if (ip(InputKey::LEFT_SHIFT)) {
-
-                    if (jp(InputKey::m)) {
-                        int last_line_index = (viewport.buffer->line_count() - 1) / 2;
-                        viewport.set_active_buffer_line_under_cursor(last_line_index);
-                        key_pressed_based_command_run = true;
-                    }
-                }
-
-                if (jp(InputKey::LEFT_SHIFT)) {
-                    if (jp(InputKey::n)) {
-                        // Check if there are any search results
-                        if (!search_results.empty()) {
-                            // Move to the previous search result, using forced positive modulo
-                            current_search_index =
-                                (current_search_index - 1 + search_results.size()) % search_results.size();
-                            TextRange sti = search_results[current_search_index];
-                            viewport.set_active_buffer_line_col_under_cursor(sti.start_line, sti.start_col);
-
-                        } else {
-                            std::cout << "No search results found" << std::endl;
-                        }
-                        key_pressed_based_command_run = true;
-                    }
-                } else {
-                    if (jp(InputKey::n)) {
-                        std::cout << "next one" << std::endl;
-
-                        if (!search_results.empty()) {
-                            current_search_index = (current_search_index + 1) % search_results.size();
-                            TextRange sti = search_results[current_search_index];
-                            viewport.set_active_buffer_line_col_under_cursor(sti.start_line, sti.start_col);
-                        } else {
-                            std::cout << "No search results found" << std::endl;
-                        }
-
-                        key_pressed_based_command_run = true;
-                    }
-                }
-                if (ip(InputKey::LEFT_SHIFT)) {
-                    if (jp(InputKey::SEMICOLON)) {
-                        current_mode = COMMAND;
-                        command_bar_input = ":";
-                        command_bar_input_signal.toggle_state();
-                        mode_change_signal.toggle_state();
-
-                        key_pressed_based_command_run = true;
-                    }
-                }
-                if (jp(InputKey::SLASH)) {
-                    current_mode = COMMAND;
-                    command_bar_input = "/";
-                    command_bar_input_signal.toggle_state();
-                    mode_change_signal.toggle_state();
-                    key_pressed_based_command_run = true;
-                }
-
+                key_pressed_based_command_run = run_non_regex_based_move_and_edit_commands();
             } else if (current_mode == COMMAND) {
-                // only doing this cause space isn't handled by the char callback
-                if (jp(InputKey::ENTER)) {
-                    if (command_bar_input == ":w") {
-                        viewport.buffer->save_file();
-                        key_pressed_based_command_run = true;
-                    }
-                    if (command_bar_input == ":q") {
-                        // glfwSetWindowShouldClose(window.glfw_window, true);
-                        key_pressed_based_command_run = true;
-                    }
-
-                    if (command_bar_input == ":tfs") {
-                        // window.toggle_fullscreen();
-                        key_pressed_based_command_run = true;
-                    }
-                    if (command_bar_input.front() == '/') {
-                        std::string search_request = command_bar_input.substr(1); // remove the "/"
-                        search_results = viewport.buffer->find_forward_matches(viewport.active_buffer_line_under_cursor,
-                                                                               viewport.active_buffer_col_under_cursor,
-                                                                               search_request);
-                        if (!search_results.empty()) {
-                            std::cout << "search active true now" << std::endl;
-                            current_search_index = 0; // start from the first result
-
-                            // Print out matches
-                            std::cout << "Search Results for '" << search_request << "':\n";
-                            for (const auto &result : search_results) {
-                                // Assuming SubTextIndex has `line` and `col` attributes for position
-                                std::cout << "Match at Line: " << result.start_line << ", Column: " << result.start_col
-                                          << "\n";
-                                // If you want to print the actual text matched:
-                                /*std::cout << "Matched text: " << matched_text << "\n";*/
-                            }
-                            // You may want to highlight the first search result here
-                            // highlight_search_result(search_results[current_search_index]);
-                        }
-                    }
-
+                if (jp(InputKey::ESCAPE) or jp(InputKey::CAPS_LOCK)) {
                     command_bar_input = "";
-                    command_bar_input_signal.toggle_state();
-                    current_mode = MOVE_AND_EDIT;
-                    mode_change_signal.toggle_state();
                 }
+                if (jp(InputKey::BACKSPACE)) {
+                    if (not command_bar_input.empty()) {
+                        command_bar_input.pop_back();
+                    }
+                }
+                key_pressed_based_command_run = run_command_bar_command();
             }
 
             if (key_pressed_based_command_run) {
                 potential_regex_command = "";
             }
         } else { // in insert mode
-            for (const auto &key : keys_just_pressed_this_tick) {
-                char c = key[0]; // safely get the first (and only) character
-                viewport.insert_character_at_cursor(c);
-            }
 
             if (iks.is_just_pressed(InputKey::BACKSPACE)) {
                 viewport.backspace_at_active_position();

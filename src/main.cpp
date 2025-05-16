@@ -718,6 +718,7 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
         {Event::ArrowDownCtrl, {InputKey::LEFT_CONTROL, InputKey::DOWN}},
 
         {Event::Character(" "), {InputKey::SPACE}},
+        {Event::Character(":"), {InputKey::LEFT_SHIFT, InputKey::SEMICOLON}},
 
         // --- Miscellaneous keys ---
         {Event::Escape, {InputKey::ESCAPE}},
@@ -915,7 +916,7 @@ int main(int argc, char *argv[]) {
 
     auto component = Container::Vertical({
         Renderer([&] {
-            num_lines = screen.dimy() - 4; // space for status bar
+            num_lines = screen.dimy() - 2 * 4; // space for status bar
             num_cols = screen.dimx();
 
             modal_editor.viewport.num_cols = num_cols;
@@ -1029,21 +1030,24 @@ int main(int argc, char *argv[]) {
                 text(filename),
             });
 
-            return vbox(canvas(std::move(c)) | border, status);
+            auto command_and_update_bar = text(modal_editor.command_bar_input);
+
+            return vbox(canvas(std::move(c)) | border, status, command_and_update_bar);
         }),
     });
 
     component |= CatchEvent([&](Event event) {
         keys.push_back(event);
 
-        if (event == Event::Delete) {
-            fl << "got delete" << std::endl;
+        if (event == Event::Return) {
+            fl << "got return" << std::endl;
         }
 
         auto it = event_to_input_keys.find(event);
         if (it != event_to_input_keys.end()) {
             for (const auto &key : it->second) {
                 auto str = input_key_to_string(key, false);
+                fl << "got str: " << str << std::endl;
                 input_key_state.input_key_to_is_pressed[key] = true;
                 bool was_pressed = input_key_state.input_key_to_is_pressed_prev[key];
                 input_key_state.input_key_to_just_pressed[key] =
