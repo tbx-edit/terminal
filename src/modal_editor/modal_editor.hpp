@@ -128,6 +128,7 @@ struct InputKeyState {
 
             // Skip modifier keys
             switch (key) {
+            case InputKey::ENTER:
             case InputKey::LEFT_SHIFT:
             case InputKey::RIGHT_SHIFT:
             case InputKey::LEFT_CONTROL:
@@ -169,6 +170,8 @@ class ModalEditor {
     ModalEditor(Viewport &viewport);
 
     // main stuff end
+
+    bool requested_quit = false;
 
     std::string command_bar_input;
     TemporalBinarySignal command_bar_input_signal;

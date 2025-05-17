@@ -91,3 +91,5 @@ name = your_username_here
 # funny
 
 This line proves we are self hosted!
+
+This is the first edit done through terminal

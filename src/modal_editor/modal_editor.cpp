@@ -760,8 +760,15 @@ bool ModalEditor::run_command_bar_command() {
             key_pressed_based_command_run = true;
         }
         if (command_bar_input == ":q") {
+            requested_quit = true;
             // glfwSetWindowShouldClose(window.glfw_window, true);
             key_pressed_based_command_run = true;
+        }
+
+        if (command_bar_input == ":wq") {
+            viewport.buffer->save_file();
+            key_pressed_based_command_run = true;
+            requested_quit = true;
         }
 
         if (command_bar_input == ":tfs") {
@@ -809,9 +816,14 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
     // auto keys_just_pressed_this_tick = input_state.get_keys_just_pressed_this_tick();
     auto keys_just_pressed_this_tick = iks.get_keys_just_pressed_this_tick();
 
+    // assuming that no popups with input are active.
+
+    bool should_try_to_run_regex_command = false;
+
     // input switch [[
     switch (current_mode) {
     case MOVE_AND_EDIT:
+        should_try_to_run_regex_command = true;
         for (const auto &key : keys_just_pressed_this_tick) {
             potential_regex_command += key;
         }
@@ -821,8 +833,30 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
             char c = key[0]; // safely get the first (and only) character
             viewport.insert_character_at_cursor(c);
         }
+        if (jp(InputKey::ENTER)) {
+            auto td = viewport.create_new_line_at_cursor_and_scroll_down();
+            if (td != EMPTY_TEXT_DIFF) {
+                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+            }
+
+            // TODO: don't use a loop make it so you can pass in the indentation level instead
+            for (int i = 0; i < viewport.buffer->get_indentation_level(viewport.active_buffer_line_under_cursor,
+                                                                       viewport.active_buffer_col_under_cursor);
+                 i++) {
+                auto td = viewport.insert_tab_at_cursor();
+                if (td != EMPTY_TEXT_DIFF) {
+                    // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+                }
+            }
+        }
+
+        if (iks.is_just_pressed(InputKey::BACKSPACE)) {
+            viewport.backspace_at_active_position();
+        }
+
         break;
     case VISUAL_SELECT:
+        should_try_to_run_regex_command = true;
         for (const auto &key : keys_just_pressed_this_tick) {
             potential_regex_command += key;
         }
@@ -834,6 +868,9 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
         break;
     }
     // input switch ]]
+
+    if (should_try_to_run_regex_command) {
+    }
 
     // TODO: this should not be the outermost if statement
     if (not fs_browser_is_active) {
@@ -869,15 +906,6 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
 
             if (key_pressed_based_command_run) {
                 potential_regex_command = "";
-            }
-        } else { // in insert mode
-
-            if (iks.is_just_pressed(InputKey::BACKSPACE)) {
-                viewport.backspace_at_active_position();
-            }
-
-            if (iks.is_just_pressed(InputKey::ENTER)) {
-                viewport.create_new_line_at_cursor_and_scroll_down();
             }
         }
     } else { // otherwise we are in the case that the file browser is active
@@ -926,25 +954,5 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
     if (jp(InputKey::ESCAPE)) {
         current_mode = MOVE_AND_EDIT;
         mode_change_signal.toggle_state();
-    }
-
-    std::function<void()> shared_m_and_e_and_visual_selection_logic = [&]() {};
-
-    if (current_mode == INSERT) {
-        if (jp(InputKey::ENTER)) {
-            auto td = viewport.create_new_line_at_cursor_and_scroll_down();
-            if (td != EMPTY_TEXT_DIFF) {
-                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-            }
-            // TODO: don't use a loop make it so you can pass in the indentation level instead
-            for (int i = 0; i < viewport.buffer->get_indentation_level(viewport.active_buffer_line_under_cursor,
-                                                                       viewport.active_buffer_col_under_cursor);
-                 i++) {
-                auto td = viewport.insert_tab_at_cursor();
-                if (td != EMPTY_TEXT_DIFF) {
-                    // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                }
-            }
-        }
     }
 }

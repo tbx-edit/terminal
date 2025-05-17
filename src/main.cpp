@@ -720,6 +720,35 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
         {Event::Character(" "), {InputKey::SPACE}},
         {Event::Character(":"), {InputKey::LEFT_SHIFT, InputKey::SEMICOLON}},
 
+        {Event::Character("0"), {InputKey::ZERO}},
+        {Event::Character("1"), {InputKey::ONE}},
+        {Event::Character("2"), {InputKey::TWO}},
+        {Event::Character("3"), {InputKey::THREE}},
+        {Event::Character("4"), {InputKey::FOUR}},
+        {Event::Character("5"), {InputKey::FIVE}},
+        {Event::Character("6"), {InputKey::SIX}},
+        {Event::Character("7"), {InputKey::SEVEN}},
+        {Event::Character("8"), {InputKey::EIGHT}},
+        {Event::Character("9"), {InputKey::NINE}},
+
+        {Event::Character("!"), {InputKey::LEFT_SHIFT, InputKey::ONE}},
+        {Event::Character("@"), {InputKey::LEFT_SHIFT, InputKey::TWO}},
+        {Event::Character("#"), {InputKey::LEFT_SHIFT, InputKey::THREE}},
+        {Event::Character("$"), {InputKey::LEFT_SHIFT, InputKey::FOUR}},
+        {Event::Character("%"), {InputKey::LEFT_SHIFT, InputKey::FIVE}},
+        {Event::Character("^"), {InputKey::LEFT_SHIFT, InputKey::SIX}},
+        {Event::Character("&"), {InputKey::LEFT_SHIFT, InputKey::SEVEN}},
+        {Event::Character("*"), {InputKey::LEFT_SHIFT, InputKey::EIGHT}},
+
+        {Event::Character("("), {InputKey::LEFT_SHIFT, InputKey::NINE}},
+        {Event::Character(")"), {InputKey::LEFT_SHIFT, InputKey::ZERO}},
+
+        {Event::Character("["), {InputKey::LEFT_SQUARE_BRACKET}},
+        {Event::Character("]"), {InputKey::RIGHT_SQUARE_BRACKET}},
+
+        {Event::Character("{"), {InputKey::LEFT_SHIFT, InputKey::LEFT_SQUARE_BRACKET}},
+        {Event::Character("}"), {InputKey::LEFT_SHIFT, InputKey::RIGHT_SQUARE_BRACKET}},
+
         // --- Miscellaneous keys ---
         {Event::Escape, {InputKey::ESCAPE}},
         {Event::Return, {InputKey::ENTER}},
@@ -902,14 +931,36 @@ int main(int argc, char *argv[]) {
     fl << "lookup input: " << Event::a.input() << std::endl;
     fl << "key input: " << event_to_input_keys.begin()->first.input() << std::endl;
 
+    // TODO: Terrible, I don't know why the above reports back a size 2, which makes no sense
+    // therefore I just "fix" it here, something is really wrong with get_event_to_input_keys function.
+    event_to_input_keys[Event::Return] = {InputKey::ENTER};
+
+    it = event_to_input_keys.find(Event::Return);
+    if (it != event_to_input_keys.end()) {
+        fl << "Found mapping for Return key" << std::endl;
+        fl << "Number of keys in mapping: " << it->second.size() << std::endl;
+
+        if (it->second.size() == 1 && it->second[0] == InputKey::ENTER) {
+            fl << "Return is correctly mapped to exactly one key: InputKey::ENTER" << std::endl;
+        } else {
+            fl << "Unexpected mapping for Return key:" << std::endl;
+            for (const auto &key : it->second) {
+                fl << "  - Key: " << input_key_to_string(key, true) << std::endl;
+            }
+        }
+    } else {
+        fl << "No mapping found for Return key" << std::endl;
+    }
+
     // auto c = Canvas(num_cols, num_lines);
     // c.DrawPointCircle(5, 5, 5);
 
     std::thread animation_thread([&] {
-        while (true) {
+        while (not modal_editor.requested_quit) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // ~60 FPS
             screen.PostEvent(Event::Custom);
         }
+        screen.Exit(); // triggers exit from screen.Loop
     });
 
     std::vector<Event> keys;
@@ -1038,6 +1089,8 @@ int main(int argc, char *argv[]) {
 
     component |= CatchEvent([&](Event event) {
         keys.push_back(event);
+
+        fl << "got event" << std::endl;
 
         if (event == Event::Return) {
             fl << "got return" << std::endl;
