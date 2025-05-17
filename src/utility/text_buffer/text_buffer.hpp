@@ -46,6 +46,7 @@ class LineTextBuffer {
     TextModification insert_string(int line_index, int col_index, const std::string &str);
     TextModification insert_newline_after_this_line(int line_index);
     TextModification insert_tab(int line_index, int col_index);
+    TextModification remove_tab(int line_index, int col_index);
 
     // NOTE: MODIFICATION FUNCTIONS END
 

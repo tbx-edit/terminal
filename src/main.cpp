@@ -718,6 +718,7 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
         {Event::ArrowDownCtrl, {InputKey::LEFT_CONTROL, InputKey::DOWN}},
 
         {Event::Character(" "), {InputKey::SPACE}},
+        {Event::Character(";"), {InputKey::SEMICOLON}},
         {Event::Character(":"), {InputKey::LEFT_SHIFT, InputKey::SEMICOLON}},
 
         {Event::Character("0"), {InputKey::ZERO}},
@@ -730,6 +731,17 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
         {Event::Character("7"), {InputKey::SEVEN}},
         {Event::Character("8"), {InputKey::EIGHT}},
         {Event::Character("9"), {InputKey::NINE}},
+
+        {Event::Character("="), {InputKey::EQUAL}},
+        {Event::Character("+"), {InputKey::LEFT_SHIFT, InputKey::EQUAL}},
+
+        {Event::Character("'"), {InputKey::SINGLE_QUOTE}},
+        {Event::Character("\""), {InputKey::LEFT_SHIFT, InputKey::SINGLE_QUOTE}},
+
+        {Event::Character(","), {InputKey::COMMA}},
+        {Event::Character("<"), {InputKey::LEFT_SHIFT, InputKey::COMMA}},
+        {Event::Character("."), {InputKey::PERIOD}},
+        {Event::Character(">"), {InputKey::LEFT_SHIFT, InputKey::PERIOD}},
 
         {Event::Character("!"), {InputKey::LEFT_SHIFT, InputKey::ONE}},
         {Event::Character("@"), {InputKey::LEFT_SHIFT, InputKey::TWO}},

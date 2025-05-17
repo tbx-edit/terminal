@@ -130,6 +130,8 @@ std::string input_key_to_string(InputKey key, bool shift_pressed) {
 ModalEditor::ModalEditor(Viewport &viewport) : viewport(viewport) {
     rcr.add_regex("^x", [&](const std::smatch &m) { delete_at_current_cursor_position_logic(); });
 
+    rcr.add_regex("^<<", [&](const std::smatch &m) { viewport.unindent_at_cursor(); });
+
     rcr.add_regex("^m", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT || current_mode == VISUAL_SELECT) {
             viewport.move_cursor_to_middle_of_line();

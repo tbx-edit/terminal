@@ -234,6 +234,17 @@ TextModification Viewport::insert_tab_at_cursor() {
     return td;
 }
 
+TextModification Viewport::unindent_at_cursor() {
+    auto td = buffer->remove_tab(active_buffer_line_under_cursor, active_buffer_col_under_cursor);
+
+    if (td != EMPTY_TEXT_DIFF) {
+        int move = -buffer->TAB.size();
+        scroll(0, move);
+    }
+
+    return td;
+}
+
 void Viewport::move_cursor_to_end_of_line() {
     int line_index = active_buffer_line_under_cursor;
 

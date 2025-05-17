@@ -50,6 +50,7 @@ class Viewport {
     const TextModification create_new_line_at_cursor_and_scroll_down();
 
     TextModification insert_tab_at_cursor();
+    TextModification unindent_at_cursor();
     TextModification insert_character_at_cursor(char character);
     TextModification insert_string_at_cursor(const std::string &str);
     TextModification insert_character_at(int line, int col, char character);
@@ -83,7 +84,6 @@ class Viewport {
     int cursor_col_offset;
 
   private:
-
     std::vector<std::vector<char>> previous_viewport_screen; ///< Stores the previous state of the viewport.
 };
 

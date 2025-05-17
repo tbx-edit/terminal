@@ -317,6 +317,32 @@ TextModification LineTextBuffer::insert_tab(int line_index, int col_index) {
     return td;
 }
 
+TextModification LineTextBuffer::remove_tab(int line_index, int col_index) {
+    if (line_index >= lines.size()) {
+        std::cerr << "Error: line index out of bounds.\n";
+        return EMPTY_TEXT_DIFF;
+    }
+
+    std::string &line = lines[line_index];
+
+    // Check if the line starts with TAB (four spaces)
+    if (line.substr(0, TAB.size()) == TAB) {
+        // Remove the TAB from the start
+        line.erase(0, TAB.size());
+
+        TextRange range(line_index, 0, line_index, static_cast<int>(TAB.size()));
+
+        TextModification td(range, "", TAB);
+        undo_stack.push(td);
+        edit_signal.toggle_state();
+        modified_without_save = true;
+
+        return td;
+    }
+
+    return EMPTY_TEXT_DIFF;
+}
+
 std::string LineTextBuffer::get_last_deleted_content() const {
 
     if (undo_stack.empty()) {
