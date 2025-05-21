@@ -149,6 +149,17 @@ struct InputKeyState {
 
         return result;
     }
+
+    void process_input_state() {
+        input_key_to_is_pressed_prev = input_key_to_is_pressed;
+        for (auto &[key, is_pressed] : input_key_to_is_pressed) {
+            is_pressed = false;
+        }
+
+        for (auto &[key, is_pressed] : input_key_to_just_pressed) {
+            is_pressed = false;
+        }
+    }
 };
 
 enum EditorMode {
@@ -180,34 +191,33 @@ class ModalEditor {
     int line_where_selection_mode_started = -1;
     int col_where_selection_mode_started = -1;
 
-    // rcr start
-    RegexCommandRunner rcr;
-    bool configured_rcr = false;
+    // regex command runner [[
+    RegexCommandRunner regex_command_runner;
+    bool regex_command_runner_has_been_configured = false;
     std::string potential_regex_command = "";
-    // rcr end
+    // regex command runner ]]
 
-    // searching within buffer start
-    std::vector<TextRange> search_results;
-    int current_search_index = 0; // to keep track of the current search result
-    bool is_search_active = false;
-    // searching within buffer end
+    // searching within file [[
+    std::vector<TextRange> file_search_results;
+    int current_file_search_index = 0; // to keep track of the current search result
+    bool file_search_is_active = false;
+    // searching within file ]]
 
-    // fsb start
-    bool fs_browser_is_active = false;
-    std::string fs_browser_search_query = "";
-    TemporalBinarySignal search_results_changed_signal;
-    std::vector<std::string> currently_matched_files;
-    // fsb end
+    // fuzzy_file_selection_modal [[
+    bool fuzzy_file_selection_modal_is_active = false;
+    std::string fuzzy_file_selection_search_query = "";
+    TemporalBinarySignal fuzzy_file_selection_search_results_changed_signal;
+    std::vector<std::string> fuzzy_file_selection_currently_matched_files;
+    // fuzzy_file_selection_modal ]]
 
-    // afb start
-    bool afb_is_active = false;
-    std::string afb_search_query = "";
-    TemporalBinarySignal afb_search_results_changed_signal;
-    std::vector<std::string> afb_currently_matched_files;
-    // afb end
+    // active_file_buffers_modal [[
+    bool active_file_buffers_modal_is_active = false;
+    std::string active_file_buffers_modal_search_query = "";
+    TemporalBinarySignal active_file_buffers_modal_search_results_changed_signal;
+    std::vector<std::string> active_file_buffers_modal_currently_matched_files;
+    // active_file_buffers_modal ]]
 
     // actual logic here
-
     void switch_files(const std::string &file_to_open, bool store_movements_to_history);
     void insert_character_in_insert_mode(unsigned int character_code);
 

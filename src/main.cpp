@@ -719,6 +719,7 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
 
         {Event::Character(" "), {InputKey::SPACE}},
         {Event::Character(";"), {InputKey::SEMICOLON}},
+        {Event::Character("/"), {InputKey::SLASH}},
         {Event::Character(":"), {InputKey::LEFT_SHIFT, InputKey::SEMICOLON}},
 
         {Event::Character("0"), {InputKey::ZERO}},
@@ -822,6 +823,108 @@ class FileLogger {
   private:
     std::ofstream file_;
 };
+
+Element generate_status_bar(ModalEditor &modal_editor, const std::string &filename) {
+    // Status Bar
+    std::string mode_str;
+
+    switch (modal_editor.current_mode) {
+    case MOVE_AND_EDIT:
+        mode_str = " -- NORMAL -- ";
+        break;
+    case INSERT:
+        mode_str = " -- INSERT -- ";
+        break;
+    case VISUAL_SELECT:
+        mode_str = " -- VISUAL SELECT -- ";
+        break;
+    case COMMAND:
+        mode_str = " -- COMMAND -- ";
+        break;
+    }
+
+    // std::string save_str = show_saved_msg ? "✅ Saved" : "";
+    std::string save_str = "save placeholder";
+    // Clock Stuff v
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm *now_tm = std::localtime(&now_time_t);
+    int time_hours = now_tm->tm_hour;
+    int time_minutes = now_tm->tm_min;
+    int time_seconds = now_tm->tm_sec;
+    std::string seconds_buffer;
+    std::string minutes_buffer;
+    if (time_seconds < 10)
+        seconds_buffer = ":0";
+    else
+        seconds_buffer = ":";
+    if (time_minutes < 10)
+        minutes_buffer = ":0";
+    else
+        minutes_buffer = ":";
+    // Clock Stuff ^
+    //
+    unsigned int num_lines_in_current_file = modal_editor.viewport.buffer->line_count();
+
+    int percentage_vertical_scroll =
+        (modal_editor.viewport.active_buffer_line_under_cursor + 1) * 100 / num_lines_in_current_file;
+    // int percentage_horizontal_scroll = (modal_editor.viewport.active_buffer_col_under_cursor + 1) * 100 /
+    // (lines[cursor_row].size() + 1);
+    int percentage_horizontal_scroll = 0;
+    auto status = hbox({
+        text(mode_str) | color(Color::Cyan),
+        text("  "),
+        text(save_str) | color(Color::Green),
+        text(" "),
+        text(std::to_string(percentage_vertical_scroll)) | color(Color::Cyan),
+        text("% "),
+        text(std::to_string(modal_editor.viewport.active_buffer_line_under_cursor + 1)) | color(Color::Cyan),
+        text("/"),
+        text(std::to_string(num_lines_in_current_file)) | color(Color::Green),
+        text(" - "),
+        text(std::to_string(percentage_horizontal_scroll)) | color(Color::Cyan),
+        text("% "),
+        text(std::to_string(modal_editor.viewport.active_buffer_col_under_cursor + 1)) | color(Color::Cyan),
+        // text("/"), text(std::to_string(lines[cursor_row].size() + 1)) | color(Color::Green),
+        filler(),
+        text(std::to_string(time_hours)),
+        text(minutes_buffer),
+        text(std::to_string(time_minutes)),
+        text(seconds_buffer),
+        text(std::to_string(time_seconds)),
+        text(" "),
+        text(filename),
+    });
+    return status;
+}
+
+auto button_style = ButtonOption::Animated();
+Component create_modal_component(std::function<void()> do_nothing, std::function<void()> hide_modal,
+                                 ModalEditor &modal_editor) {
+
+    auto component = Container::Vertical({
+        Button("Do nothing", do_nothing, button_style),
+        Button("Quit modal", hide_modal, button_style),
+    });
+
+    // Polish how the two buttons are rendered:
+
+    component |= Renderer([&](Element inner) {
+        std::vector<Element> matched_file_texts;
+        for (const auto &matched_file : modal_editor.fuzzy_file_selection_currently_matched_files) {
+            matched_file_texts.push_back(text(matched_file));
+        }
+        std::vector<Element> x = {
+            text("Modal component "),
+            separator(),
+            inner,
+        };
+        return vbox(x)                         //
+               | size(WIDTH, GREATER_THAN, 30) //
+               | border;                       //
+    });
+    return component;
+}
 
 int main(int argc, char *argv[]) {
 
@@ -1006,6 +1109,9 @@ int main(int argc, char *argv[]) {
                 }
             }
 
+            if (modal_editor.fuzzy_file_selection_modal_is_active) {
+            }
+
             auto just_pressed_keys = input_key_state.get_keys_just_pressed_this_tick();
             fl << "in Renderer Just pressed keys this tick:";
             for (const auto &key_str : just_pressed_keys) {
@@ -1013,91 +1119,22 @@ int main(int argc, char *argv[]) {
             }
             fl << std::endl;
 
-            input_key_state.input_key_to_is_pressed_prev = input_key_state.input_key_to_is_pressed;
-            for (auto &[key, is_pressed] : input_key_state.input_key_to_is_pressed) {
-                is_pressed = false;
-            }
-
-            for (auto &[key, is_pressed] : input_key_state.input_key_to_just_pressed) {
-                is_pressed = false;
-            }
-
-            // Status Bar
-            std::string mode_str;
-
-            switch (modal_editor.current_mode) {
-            case MOVE_AND_EDIT:
-                mode_str = " -- NORMAL -- ";
-                break;
-            case INSERT:
-                mode_str = " -- INSERT -- ";
-                break;
-            case VISUAL_SELECT:
-                mode_str = " -- VISUAL SELECT -- ";
-                break;
-            case COMMAND:
-                mode_str = " -- COMMAND -- ";
-                break;
-            }
-
-            // std::string save_str = show_saved_msg ? "✅ Saved" : "";
-            std::string save_str = "save placeholder";
-            // Clock Stuff v
-            auto now = std::chrono::system_clock::now();
-            std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-            std::tm *now_tm = std::localtime(&now_time_t);
-            int time_hours = now_tm->tm_hour;
-            int time_minutes = now_tm->tm_min;
-            int time_seconds = now_tm->tm_sec;
-            std::string seconds_buffer;
-            std::string minutes_buffer;
-            if (time_seconds < 10)
-                seconds_buffer = ":0";
-            else
-                seconds_buffer = ":";
-            if (time_minutes < 10)
-                minutes_buffer = ":0";
-            else
-                minutes_buffer = ":";
-            // Clock Stuff ^
-            //
-            unsigned int num_lines_in_current_file = modal_editor.viewport.buffer->line_count();
-
-            int percentage_vertical_scroll =
-                (modal_editor.viewport.active_buffer_line_under_cursor + 1) * 100 / num_lines_in_current_file;
-            // int percentage_horizontal_scroll = (modal_editor.viewport.active_buffer_col_under_cursor + 1) * 100 /
-            // (lines[cursor_row].size() + 1);
-            int percentage_horizontal_scroll = 0;
-            auto status = hbox({
-                text(mode_str) | color(Color::Cyan),
-                text("  "),
-                text(save_str) | color(Color::Green),
-                text(" "),
-                text(std::to_string(percentage_vertical_scroll)) | color(Color::Cyan),
-                text("% "),
-                text(std::to_string(modal_editor.viewport.active_buffer_line_under_cursor + 1)) | color(Color::Cyan),
-                text("/"),
-                text(std::to_string(num_lines_in_current_file)) | color(Color::Green),
-                text(" - "),
-                text(std::to_string(percentage_horizontal_scroll)) | color(Color::Cyan),
-                text("% "),
-                text(std::to_string(modal_editor.viewport.active_buffer_col_under_cursor + 1)) | color(Color::Cyan),
-                // text("/"), text(std::to_string(lines[cursor_row].size() + 1)) | color(Color::Green),
-                filler(),
-                text(std::to_string(time_hours)),
-                text(minutes_buffer),
-                text(std::to_string(time_minutes)),
-                text(seconds_buffer),
-                text(std::to_string(time_seconds)),
-                text(" "),
-                text(filename),
-            });
+            input_key_state.process_input_state();
 
             auto command_and_update_bar = text(modal_editor.command_bar_input);
+
+            auto status = generate_status_bar(modal_editor, filename);
 
             return vbox(canvas(std::move(c)) | border, status, command_and_update_bar);
         }),
     });
+
+    auto hide_modal = [&] { modal_editor.fuzzy_file_selection_modal_is_active = false; };
+    auto do_nothing = [&] {};
+
+    auto modal_component = create_modal_component(do_nothing, hide_modal, modal_editor);
+
+    component |= Modal(modal_component, &modal_editor.fuzzy_file_selection_modal_is_active);
 
     component |= CatchEvent([&](Event event) {
         keys.push_back(event);

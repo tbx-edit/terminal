@@ -128,81 +128,84 @@ std::string input_key_to_string(InputKey key, bool shift_pressed) {
 }
 
 ModalEditor::ModalEditor(Viewport &viewport) : viewport(viewport) {
-    rcr.add_regex("^x", [&](const std::smatch &m) { delete_at_current_cursor_position_logic(); });
+    regex_command_runner.add_regex("^x", [&](const std::smatch &m) { delete_at_current_cursor_position_logic(); });
 
-    rcr.add_regex("^<<", [&](const std::smatch &m) { viewport.unindent_at_cursor(); });
+    regex_command_runner.add_regex("^<<", [&](const std::smatch &m) { viewport.unindent_at_cursor(); });
 
-    rcr.add_regex("^m", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^m", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT || current_mode == VISUAL_SELECT) {
             viewport.move_cursor_to_middle_of_line();
         }
     });
 
-    rcr.add_regex("^\\$", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^\\$", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT || current_mode == VISUAL_SELECT) {
             viewport.move_cursor_to_end_of_line();
         }
     });
 
-    rcr.add_regex("^[pP]", [&](const std::smatch &m) { paste_at_cursor_position_logic(m); });
+    regex_command_runner.add_regex("^[pP]", [&](const std::smatch &m) { paste_at_cursor_position_logic(m); });
 
-    rcr.add_regex("^0", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^0", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT || current_mode == VISUAL_SELECT) {
             viewport.move_cursor_to_start_of_line();
         }
     });
 
-    rcr.add_regex("^v", [&](const std::smatch &m) { start_visual_selection(); });
+    regex_command_runner.add_regex("^v", [&](const std::smatch &m) { start_visual_selection(); });
 
-    rcr.add_regex("^i", [&](const std::smatch &m) { enter_insert_mode(); });
+    regex_command_runner.add_regex("^i", [&](const std::smatch &m) { enter_insert_mode(); });
 
-    rcr.add_regex("^a", [&](const std::smatch &m) { enter_insert_mode_after_cursor_position(); });
+    regex_command_runner.add_regex("^a", [&](const std::smatch &m) { enter_insert_mode_after_cursor_position(); });
 
-    rcr.add_regex("^A", [&](const std::smatch &m) { enter_insert_mode_at_end_of_line(); });
+    regex_command_runner.add_regex("^A", [&](const std::smatch &m) { enter_insert_mode_at_end_of_line(); });
 
-    rcr.add_regex("^I", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^I", [&](const std::smatch &m) {
         enter_insert_mode_in_front_of_first_non_whitespace_character_on_active_line();
     });
 
-    rcr.add_regex("^\\^",
-                  [&](const std::smatch &m) { move_cursor_to_first_non_whitespace_character_on_active_line(); });
+    regex_command_runner.add_regex(
+        "^\\^", [&](const std::smatch &m) { move_cursor_to_first_non_whitespace_character_on_active_line(); });
 
-    rcr.add_regex(R"(^(\d*)([jklh]))", [&](const std::smatch &m) { handle_hjkl_with_number_modifier(m); });
+    regex_command_runner.add_regex(R"(^(\d*)([jklh]))",
+                                   [&](const std::smatch &m) { handle_hjkl_with_number_modifier(m); });
 
-    rcr.add_regex(R"(^(\d*)G)", [&](const std::smatch &m) { go_to_specific_line_number(m); });
+    regex_command_runner.add_regex(R"(^(\d*)G)", [&](const std::smatch &m) { go_to_specific_line_number(m); });
 
-    rcr.add_regex(R"(^([cd]?)([fFtT])(.))",
-                  [&](const std::smatch &m) { change_or_delete_till_or_find_to_character(m); });
+    regex_command_runner.add_regex(R"(^([cd]?)([fFtT])(.))",
+                                   [&](const std::smatch &m) { change_or_delete_till_or_find_to_character(m); });
 
     // Regex for [cd][webB] (change/delete with word motions)
-    rcr.add_regex(R"(^([cd]?)([webB]))", [&](const std::smatch &m) { change_or_delete_using_word_motion(m); });
+    regex_command_runner.add_regex(R"(^([cd]?)([webB]))",
+                                   [&](const std::smatch &m) { change_or_delete_using_word_motion(m); });
 
     // modification within brackets
-    rcr.add_regex(R"(^([cd])([ai])([bB]))",
-                  [&](const std::smatch &m) { change_or_delete_inside_or_around_brackets(m); });
+    regex_command_runner.add_regex(R"(^([cd])([ai])([bB]))",
+                                   [&](const std::smatch &m) { change_or_delete_inside_or_around_brackets(m); });
 
     // go to top of file
-    rcr.add_regex("^gg", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^gg", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT) {
             viewport.set_active_buffer_line_under_cursor(0);
         }
     });
 
-    rcr.add_regex("^[oO]", [&](const std::smatch &m) { open_new_line_below_or_above_current_line(m); });
+    regex_command_runner.add_regex("^[oO]",
+                                   [&](const std::smatch &m) { open_new_line_below_or_above_current_line(m); });
 
-    rcr.add_regex("^u", [&](const std::smatch &m) { undo(); });
-    rcr.add_regex("^r", [&](const std::smatch &m) { redo(); });
-    rcr.add_regex("^ sf", [&](const std::smatch &m) { launch_search_files(); });
-    rcr.add_regex("^  ", [&](const std::smatch &m) { search_active_buffers(); });
+    regex_command_runner.add_regex("^u", [&](const std::smatch &m) { undo(); });
+    regex_command_runner.add_regex("^r", [&](const std::smatch &m) { redo(); });
+    regex_command_runner.add_regex("^ sf", [&](const std::smatch &m) { launch_search_files(); });
+    regex_command_runner.add_regex("^  ", [&](const std::smatch &m) { search_active_buffers(); });
     // rcr.add_regex("^ gd", [&](const std::smatch &m) { go_to_definition_dummy(); });
 
-    rcr.add_regex("^dd", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^dd", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT) {
             viewport.delete_line_at_cursor();
         }
     });
 
-    rcr.add_regex("^yy", [&](const std::smatch &m) {
+    regex_command_runner.add_regex("^yy", [&](const std::smatch &m) {
         if (current_mode == MOVE_AND_EDIT) {
             std::string current_line = viewport.buffer->get_line(viewport.active_buffer_line_under_cursor);
             // NOTE: commented out because trying not to depend on the clipboard thing, instead replace with lambda
@@ -213,11 +216,11 @@ ModalEditor::ModalEditor(Viewport &viewport) : viewport(viewport) {
 
     bool editing_a_cpp_project = true;
     if (editing_a_cpp_project) {
-        rcr.add_regex("^ cc", [&](const std::smatch &m) { switch_to_cpp_source_file(); });
+        regex_command_runner.add_regex("^ cc", [&](const std::smatch &m) { switch_to_cpp_source_file(); });
 
-        rcr.add_regex("^ hh", [&](const std::smatch &m) { switch_to_hpp_source_file(); });
+        regex_command_runner.add_regex("^ hh", [&](const std::smatch &m) { switch_to_hpp_source_file(); });
     }
-    configured_rcr = true;
+    regex_command_runner_has_been_configured = true;
 };
 
 // this is here because I'm removing the dependency on lsp client
@@ -621,13 +624,13 @@ void ModalEditor::redo() {
 
 void ModalEditor::launch_search_files() {
     if (current_mode == MOVE_AND_EDIT) {
-        fs_browser_is_active = true;
+        fuzzy_file_selection_modal_is_active = true;
     }
 }
 
 void ModalEditor::search_active_buffers() {
     if (current_mode == MOVE_AND_EDIT) {
-        afb_is_active = true;
+        active_file_buffers_modal_is_active = true;
     }
 }
 
@@ -692,7 +695,6 @@ bool ModalEditor::run_non_regex_based_move_and_edit_commands() {
         }
     }
     if (ip(InputKey::LEFT_SHIFT)) {
-
         if (jp(InputKey::m)) {
             int last_line_index = (viewport.buffer->line_count() - 1) / 2;
             viewport.set_active_buffer_line_under_cursor(last_line_index);
@@ -703,10 +705,11 @@ bool ModalEditor::run_non_regex_based_move_and_edit_commands() {
     if (jp(InputKey::LEFT_SHIFT)) {
         if (jp(InputKey::n)) {
             // Check if there are any search results
-            if (!search_results.empty()) {
+            if (!file_search_results.empty()) {
                 // Move to the previous search result, using forced positive modulo
-                current_search_index = (current_search_index - 1 + search_results.size()) % search_results.size();
-                TextRange sti = search_results[current_search_index];
+                current_file_search_index =
+                    (current_file_search_index - 1 + file_search_results.size()) % file_search_results.size();
+                TextRange sti = file_search_results[current_file_search_index];
                 viewport.set_active_buffer_line_col_under_cursor(sti.start_line, sti.start_col);
 
             } else {
@@ -718,9 +721,9 @@ bool ModalEditor::run_non_regex_based_move_and_edit_commands() {
         if (jp(InputKey::n)) {
             std::cout << "next one" << std::endl;
 
-            if (!search_results.empty()) {
-                current_search_index = (current_search_index + 1) % search_results.size();
-                TextRange sti = search_results[current_search_index];
+            if (!file_search_results.empty()) {
+                current_file_search_index = (current_file_search_index + 1) % file_search_results.size();
+                TextRange sti = file_search_results[current_file_search_index];
                 viewport.set_active_buffer_line_col_under_cursor(sti.start_line, sti.start_col);
             } else {
                 std::cout << "No search results found" << std::endl;
@@ -735,10 +738,10 @@ bool ModalEditor::run_non_regex_based_move_and_edit_commands() {
             command_bar_input = ":";
             command_bar_input_signal.toggle_state();
             mode_change_signal.toggle_state();
-
             key_pressed_based_command_run = true;
         }
     }
+
     if (jp(InputKey::SLASH)) {
         current_mode = COMMAND;
         command_bar_input = "/";
@@ -779,15 +782,15 @@ bool ModalEditor::run_command_bar_command() {
         }
         if (command_bar_input.front() == '/') {
             std::string search_request = command_bar_input.substr(1); // remove the "/"
-            search_results = viewport.buffer->find_forward_matches(
+            file_search_results = viewport.buffer->find_forward_matches(
                 viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, search_request);
-            if (!search_results.empty()) {
+            if (!file_search_results.empty()) {
                 std::cout << "search active true now" << std::endl;
-                current_search_index = 0; // start from the first result
+                current_file_search_index = 0; // start from the first result
 
                 // Print out matches
                 std::cout << "Search Results for '" << search_request << "':\n";
-                for (const auto &result : search_results) {
+                for (const auto &result : file_search_results) {
                     // Assuming SubTextIndex has `line` and `col` attributes for position
                     std::cout << "Match at Line: " << result.start_line << ", Column: " << result.start_col << "\n";
                     // If you want to print the actual text matched:
@@ -875,13 +878,13 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
     }
 
     // TODO: this should not be the outermost if statement
-    if (not fs_browser_is_active) {
+    if (not fuzzy_file_selection_modal_is_active) {
 
         if (current_mode != INSERT) {
             // NOTE: if keys just pressed this tick is has length greater or equal to 2, then that implies two keys were
             // pressed ina single tick, should be rare enough to ignore, but note that it may be a cause for later bugs.
 
-            bool command_was_run = rcr.potentially_run_command(potential_regex_command);
+            bool command_was_run = regex_command_runner.potentially_run_command(potential_regex_command);
             if (command_was_run) {
                 potential_regex_command = "";
             }
@@ -913,7 +916,7 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
     } else { // otherwise we are in the case that the file browser is active
         if (not keys_just_pressed_this_tick.empty()) {
             for (const auto &key : keys_just_pressed_this_tick) {
-                fs_browser_search_query += key;
+                fuzzy_file_selection_search_query += key;
             }
 
             if (searchable_files.empty()) {
@@ -928,15 +931,15 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
         }
 
         if (jp(InputKey::ENTER)) {
-            if (currently_matched_files.size() != 0) {
-                std::cout << "about to load up: " << currently_matched_files[0] << std::endl;
-                std::string file_to_open = currently_matched_files[0];
+            if (fuzzy_file_selection_currently_matched_files.size() != 0) {
+                std::cout << "about to load up: " << fuzzy_file_selection_currently_matched_files[0] << std::endl;
+                std::string file_to_open = fuzzy_file_selection_currently_matched_files[0];
                 std::cout << "file_to_open: " << file_to_open << std::endl;
 
                 switch_files(file_to_open, true);
 
-                fs_browser_is_active = false;
-                fs_browser_search_query = "";
+                fuzzy_file_selection_modal_is_active = false;
+                fuzzy_file_selection_search_query = "";
 
                 return;
             }
@@ -944,12 +947,12 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
 
         if (jp(InputKey::CAPS_LOCK) or jp(InputKey::ESCAPE)) {
             std::cout << "tried to turn off fb" << std::endl;
-            fs_browser_is_active = false;
+            fuzzy_file_selection_modal_is_active = false;
             return;
         }
     }
 
-    if (fs_browser_is_active) {
+    if (fuzzy_file_selection_modal_is_active) {
         return;
     }
 
