@@ -56,6 +56,7 @@ class Viewport {
     TextModification insert_character_at(int line, int col, char character);
 
     TextModification delete_line_at_cursor();
+    TextModification clear_line_at_cursor();
     TextModification delete_character_at_active_position();
     TextModification backspace_at_active_position();
 
@@ -75,13 +76,18 @@ class Viewport {
     TemporalBinarySignal moved_signal;
     bool selection_mode_on;
 
+    // note that this is inside the file, not some graphical coordinate
     int active_buffer_line_under_cursor;
     int active_buffer_col_under_cursor;
     int num_lines;
     int num_cols;
+    int half_num_lines;
+    int half_num_cols;
 
-    int cursor_line_offset;
-    int cursor_col_offset;
+    std::pair<int, int> viewport_idx_to_centered_buffer_idx(int line, int col) const;
+
+    // this is pretty much constant unless you change the dimensions of your viewport
+    // it is only for placing the center of the screen where the cursor is
 
   private:
     std::vector<std::vector<char>> previous_viewport_screen; ///< Stores the previous state of the viewport.

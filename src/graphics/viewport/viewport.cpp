@@ -4,8 +4,8 @@
 
 Viewport::Viewport(std::shared_ptr<LineTextBuffer> initial_buffer, int num_lines, int num_cols, int cursor_line_offset,
                    int cursor_col_offset)
-    : buffer(initial_buffer), cursor_line_offset(cursor_line_offset), num_lines(num_lines), num_cols(num_cols),
-      cursor_col_offset(cursor_col_offset), active_buffer_line_under_cursor(0), active_buffer_col_under_cursor(0),
+    : buffer(initial_buffer), half_num_lines(cursor_line_offset), num_lines(num_lines), num_cols(num_cols),
+      half_num_cols(cursor_col_offset), active_buffer_line_under_cursor(0), active_buffer_col_under_cursor(0),
       selection_mode_on(false) {
 
     // Initialize the previous_state with the same dimensions as the viewport
@@ -119,16 +119,36 @@ void Viewport::set_active_buffer_col_under_cursor(int col, bool store_pos_to_his
     set_active_buffer_line_col_under_cursor(active_buffer_line_under_cursor, col, store_pos_to_history);
 }
 
+// the active buffer line under cursor is where the cursor currently is inside of the buffer,
+// our goal is to always have that at the center of the screen, in order to make this occur we need to place the
+// cursor position in the middle,
+//
+// The arguments to this function come in with the following indexing method: top left is (0, 0) and rightward and
+// downward movement is positive
+//
+// That means when the argument (half_num_lines, half_num_cols) comse in, we're requesting what character should be
+// rendered in the middle of the screen, based off what we discussed above, we would assume that we should get the
+// character at position (0, 0) in the file, because that's the current (abluc, abcuc) pair. To do this we just have
+// to subtract the half dimensions to make this occur
+//
+// when (0, 0) is passed in, it will be in some non-visible part of the buffer because we start the buffer with (0, 0)
+// in the middle of the screen
+std::pair<int, int> Viewport::viewport_idx_to_centered_buffer_idx(int line, int col) const {
+    return {(line - half_num_lines) + active_buffer_line_under_cursor,
+            (col - half_num_cols) + active_buffer_col_under_cursor};
+}
+
+// the passed in coordinates are those from top left down to bottom right
 char Viewport::get_symbol_at(int line, int col) const {
-    int line_index = active_buffer_line_under_cursor + line - cursor_line_offset;
-    int column_index = active_buffer_col_under_cursor + col - cursor_col_offset;
+
+    auto [buffer_line_idx, buffer_col_idx] = viewport_idx_to_centered_buffer_idx(line, col);
 
     // Check if the line index is within bounds
-    if (line_index < buffer->line_count() && line_index >= 0) {
-        if (column_index < 0) {
+    if (buffer_line_idx < buffer->line_count() && buffer_line_idx >= 0) {
+        if (buffer_col_idx < 0) {
             // Handle negative column indices: Render line number
-            std::string line_number = std::to_string(line_index + 1) + "|";
-            int line_number_index = column_index + line_number.size();
+            std::string line_number = std::to_string(buffer_line_idx + 1) + "|";
+            int line_number_index = buffer_col_idx + line_number.size();
 
             if (line_number_index >= 0) {
                 return line_number[line_number_index];
@@ -137,9 +157,9 @@ char Viewport::get_symbol_at(int line, int col) const {
             }
         } else {
             // Handle non-negative column indices: Render buffer content
-            const std::string &line_content = buffer->get_line(line_index);
-            if (column_index < line_content.size()) {
-                return line_content[column_index];
+            const std::string &line_content = buffer->get_line(buffer_line_idx);
+            if (buffer_col_idx < line_content.size()) {
+                return line_content[buffer_col_idx];
             }
         }
     }
@@ -210,6 +230,17 @@ TextModification Viewport::delete_line_at_cursor() {
     }
 
     auto tm = buffer->delete_line(line_index);
+    return tm;
+}
+
+TextModification Viewport::clear_line_at_cursor() {
+    int line_index = active_buffer_line_under_cursor;
+
+    if (line_index < 0 || line_index >= buffer->line_count()) {
+        return EMPTY_TEXT_DIFF;
+    }
+
+    auto tm = buffer->replace_line(line_index, "");
     return tm;
 }
 

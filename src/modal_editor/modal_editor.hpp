@@ -188,8 +188,8 @@ class ModalEditor {
     TemporalBinarySignal command_bar_input_signal;
     TemporalBinarySignal insert_mode_signal;
 
-    int line_where_selection_mode_started = -1;
-    int col_where_selection_mode_started = -1;
+    int buffer_line_where_selection_mode_started = -1;
+    int buffer_col_where_selection_mode_started = -1;
 
     // regex command runner [[
     RegexCommandRunner regex_command_runner;
@@ -208,6 +208,8 @@ class ModalEditor {
     std::string fuzzy_file_selection_search_query = "";
     TemporalBinarySignal fuzzy_file_selection_search_results_changed_signal;
     std::vector<std::string> fuzzy_file_selection_currently_matched_files;
+    unsigned int fuzzy_file_selection_idx = 0;
+    unsigned int fuzzy_file_selection_max_matched_files = 10;
     // fuzzy_file_selection_modal ]]
 
     // active_file_buffers_modal [[
@@ -222,6 +224,7 @@ class ModalEditor {
     void insert_character_in_insert_mode(unsigned int character_code);
 
     void delete_at_current_cursor_position_logic();
+    void delete_line_current_cursor_position();
     void paste_at_cursor_position_logic(const std::smatch &m);
     void start_visual_selection();
     void enter_insert_mode();

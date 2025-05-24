@@ -1,4 +1,6 @@
 #include "modal_editor.hpp"
+#include <algorithm>
+#include <rapidfuzz/fuzz.hpp>
 
 std::string ModalEditor::get_mode_string() {
     switch (current_mode) {
@@ -297,7 +299,7 @@ void ModalEditor::delete_at_current_cursor_position_logic() {
     if (current_mode == VISUAL_SELECT) {
         // TODO: make change request
         auto tms = viewport.buffer->delete_bounding_box(
-            line_where_selection_mode_started, col_where_selection_mode_started,
+            buffer_line_where_selection_mode_started, buffer_col_where_selection_mode_started,
             viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
 
         for (const auto &tm : tms) {
@@ -306,11 +308,17 @@ void ModalEditor::delete_at_current_cursor_position_logic() {
             }
         }
 
-        viewport.set_active_buffer_line_col_under_cursor(line_where_selection_mode_started,
-                                                         col_where_selection_mode_started);
+        viewport.set_active_buffer_line_col_under_cursor(buffer_line_where_selection_mode_started,
+                                                         buffer_col_where_selection_mode_started);
 
         current_mode = MOVE_AND_EDIT;
         mode_change_signal.toggle_state();
+    }
+}
+
+void ModalEditor::delete_line_current_cursor_position() {
+    if (current_mode == MOVE_AND_EDIT) {
+        auto tm = viewport.delete_line_at_cursor();
     }
 }
 
@@ -336,8 +344,8 @@ void ModalEditor::start_visual_selection() {
     if (current_mode == MOVE_AND_EDIT) {
         current_mode = VISUAL_SELECT;
         mode_change_signal.toggle_state();
-        line_where_selection_mode_started = viewport.active_buffer_line_under_cursor;
-        col_where_selection_mode_started = viewport.active_buffer_col_under_cursor;
+        buffer_line_where_selection_mode_started = viewport.active_buffer_line_under_cursor;
+        buffer_col_where_selection_mode_started = viewport.active_buffer_col_under_cursor;
     }
 }
 
@@ -732,6 +740,16 @@ bool ModalEditor::run_non_regex_based_move_and_edit_commands() {
             key_pressed_based_command_run = true;
         }
     }
+
+    if (jp(InputKey::LEFT_SHIFT)) {
+        if (jp(InputKey::s)) {
+            viewport.clear_line_at_cursor();
+            current_mode = INSERT;
+            mode_change_signal.toggle_state();
+            key_pressed_based_command_run = true;
+        }
+    }
+
     if (ip(InputKey::LEFT_SHIFT)) {
         if (jp(InputKey::SEMICOLON)) {
             current_mode = COMMAND;
@@ -809,6 +827,36 @@ bool ModalEditor::run_command_bar_command() {
     return key_pressed_based_command_run;
 }
 
+template <typename Iterable>
+std::vector<std::pair<std::string, double>> find_matching_files(const std::string &query, const Iterable &files,
+                                                                size_t result_limit, double filename_weight = 0.7) {
+    std::vector<std::pair<std::string, double>> results;
+
+    rapidfuzz::fuzz::CachedRatio<char> scorer(query);
+
+    for (const auto &file : files) {
+        std::string file_path = file.string();
+        std::string filename = std::filesystem::path(file_path).filename().string();
+
+        // Calculate similarity scores for both the full path and the filename
+        double path_score = scorer.similarity(file_path);
+        double filename_score = scorer.similarity(filename);
+
+        // Weighted combination of both scores
+        double combined_score = (1.0 - filename_weight) * path_score + filename_weight * filename_score;
+
+        results.emplace_back(file_path, combined_score);
+    }
+
+    std::sort(results.begin(), results.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
+
+    if (results.size() > result_limit) {
+        results.resize(result_limit);
+    }
+
+    return results;
+}
+
 void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_files) {
 
     // less keystrokes please:
@@ -879,7 +927,6 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
 
     // TODO: this should not be the outermost if statement
     if (not fuzzy_file_selection_modal_is_active) {
-
         if (current_mode != INSERT) {
             // NOTE: if keys just pressed this tick is has length greater or equal to 2, then that implies two keys were
             // pressed ina single tick, should be rare enough to ignore, but note that it may be a cause for later bugs.
@@ -914,9 +961,46 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
             }
         }
     } else { // otherwise we are in the case that the file browser is active
-        if (not keys_just_pressed_this_tick.empty()) {
+
+        bool query_was_updated = false;
+
+        if (jp(InputKey::BACKSPACE)) {
+            if (fuzzy_file_selection_search_query != "") {
+                fuzzy_file_selection_search_query.pop_back();
+                query_was_updated = true;
+            }
+        }
+
+        bool movement_input = false;
+        if (ip(InputKey::LEFT_CONTROL)) {
+            if (jp(InputKey::p)) {
+                fuzzy_file_selection_idx++;
+                movement_input = true;
+            }
+
+            if (jp(InputKey::n)) {
+                fuzzy_file_selection_idx--;
+                movement_input = true;
+            }
+
+            fuzzy_file_selection_idx %= fuzzy_file_selection_max_matched_files; // TODO use min of num matches
+        }
+
+        if (not keys_just_pressed_this_tick.empty() and
+            not movement_input) { // if a movement input occurred we don't count that towards the query input
+
             for (const auto &key : keys_just_pressed_this_tick) {
                 fuzzy_file_selection_search_query += key;
+                query_was_updated = true;
+            }
+
+            if (query_was_updated) {
+                auto file_score_pairs = find_matching_files(fuzzy_file_selection_search_query, searchable_files, 10);
+                std::vector<std::string> matched_files;
+                for (const auto &pair : file_score_pairs) {
+                    matched_files.push_back(pair.first);
+                }
+                fuzzy_file_selection_currently_matched_files = matched_files;
             }
 
             if (searchable_files.empty()) {
@@ -948,6 +1032,7 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
         if (jp(InputKey::CAPS_LOCK) or jp(InputKey::ESCAPE)) {
             std::cout << "tried to turn off fb" << std::endl;
             fuzzy_file_selection_modal_is_active = false;
+            fuzzy_file_selection_search_query = "";
             return;
         }
     }

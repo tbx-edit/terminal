@@ -1,17 +1,11 @@
 // TODO: list
-// for every operation that edits something we need to register a did change event
-// add logic for going up and down in the search menu
-// add in multiple textbuffers for a viewport
-// eventually get to highlighting, later on though check out
-// https://tree-sitter.github.io/tree-sitter/3-syntax-highlighting.html
-// check out temp/tree_sitter_...
+// need to work on the indexing on the file selection list using modulo and min of max index
 
 #include <algorithm>
 #include <fmt/core.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <nlohmann/detail/input/input_adapters.hpp>
-#include <rapidfuzz/fuzz.hpp>
 
 #include "modal_editor/modal_editor.hpp"
 
@@ -116,93 +110,6 @@ bool starts_with_any_prefix(const std::string &str, const std::vector<std::strin
         }
     }
     return false;
-}
-
-// todo fill in the json file for the font we created, then create a shader for absolute position and textures
-// then use the texture atlas in conjuction with temp/editor code to render the right characters in the right place
-// by re-writing the render function, where instead it will go to the batcher and do a queue draw where we replicate
-// the text coords a bunch, no need for the texture packer, but intead just load in the correct image and also
-// i thinkt hat we might have correct the stock behavior of the texture atlas which flips the image, use renderdoc for
-// that.
-
-void adjust_uv_coordinates_in_place(std::vector<glm::vec2> &uv_coords, float horizontal_push, float top_push,
-                                    float bottom_push) {
-    // Ensure the vector has exactly 4 elements
-    if (uv_coords.size() != 4) {
-        throw std::invalid_argument("UV coordinates vector must contain exactly 4 elements.");
-    }
-
-    // Push in the UV coordinates with separate adjustments for top and bottom
-    uv_coords[0].x -= horizontal_push; // Top-right
-    uv_coords[0].y += top_push;
-
-    uv_coords[1].x -= horizontal_push; // Bottom-right
-    uv_coords[1].y -= bottom_push;
-
-    uv_coords[2].x += horizontal_push; // Bottom-left
-    uv_coords[2].y -= bottom_push;
-
-    uv_coords[3].x += horizontal_push; // Top-left
-    uv_coords[3].y += top_push;
-}
-
-// int unique_idx = 0;
-// for (int line = 0; line < screen_grid.rows; line++) {
-//     for (int col = 0; col < screen_grid.cols; col++) {
-//         auto cell_rect = screen_grid.get_at(col, line);
-//         vertex_geometry::IndexedVertices cell_ivs = cell_rect.get_ivs();
-//         std::string cell_char(1, viewport.get_symbol_at(line, col));
-//         auto cell_char_tcs = monospaced_font_atlas.get_texture_coordinates_of_sub_texture(cell_char);
-//         // because the texture has the font inside the cell.
-//         adjust_uv_coordinates_in_place(cell_char_tcs, 0.017, 0.045, 0.01);
-//
-//         /*if (viewport.has_cell_changed(line, col)) {*/
-//         /*    batcher.absolute_position_with_solid_color_shader_batcher.queue_draw(unique_idx,
-//          * cell_ivs.indices,*/
-//         /*                                                                         cell_ivs.vertices, true);*/
-//         /*}*/
-//
-//         batcher.absolute_position_textured_shader_batcher.queue_draw(
-//             unique_idx, cell_ivs.indices, cell_ivs.vertices, cell_char_tcs, viewport.has_cell_changed(line, col));
-//         unique_idx++;
-//     }
-// }
-
-template <typename Iterable>
-std::vector<std::pair<std::string, double>> find_matching_files(const std::string &query, const Iterable &files,
-                                                                size_t result_limit, double filename_weight = 0.7) {
-    std::vector<std::pair<std::string, double>> results;
-
-    rapidfuzz::fuzz::CachedRatio<char> scorer(query);
-    spdlog::debug("Starting file matching with query: '{}' and result limit: {}", query, result_limit);
-
-    for (const auto &file : files) {
-        std::string file_path = file.string();
-        std::string filename = std::filesystem::path(file_path).filename().string();
-
-        // Calculate similarity scores for both the full path and the filename
-        double path_score = scorer.similarity(file_path);
-        double filename_score = scorer.similarity(filename);
-
-        // Weighted combination of both scores
-        double combined_score = (1.0 - filename_weight) * path_score + filename_weight * filename_score;
-
-        spdlog::debug("File: '{}', Path Score: {:.2f}, Filename Score: {:.2f}, Combined Score: {:.2f}", file_path,
-                      path_score, filename_score, combined_score);
-
-        results.emplace_back(file_path, combined_score);
-    }
-
-    std::sort(results.begin(), results.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
-
-    spdlog::debug("Sorting completed. Total files evaluated: {}", results.size());
-
-    if (results.size() > result_limit) {
-        results.resize(result_limit);
-        spdlog::debug("Trimmed results to the top {} files.", result_limit);
-    }
-
-    return results;
 }
 
 void go_to_definition(JSON lsp_response, Viewport &viewport, LSPClient &lsp_client) {
@@ -720,6 +627,7 @@ const std::unordered_map<Event, std::vector<InputKey>, EventHasher> &get_event_t
         {Event::Character(" "), {InputKey::SPACE}},
         {Event::Character(";"), {InputKey::SEMICOLON}},
         {Event::Character("/"), {InputKey::SLASH}},
+        {Event::Character("?"), {InputKey::LEFT_SHIFT, InputKey::SLASH}},
         {Event::Character(":"), {InputKey::LEFT_SHIFT, InputKey::SEMICOLON}},
 
         {Event::Character("0"), {InputKey::ZERO}},
@@ -899,9 +807,10 @@ Element generate_status_bar(ModalEditor &modal_editor, const std::string &filena
 }
 
 auto button_style = ButtonOption::Animated();
-Component create_modal_component(std::function<void()> do_nothing, std::function<void()> hide_modal,
-                                 ModalEditor &modal_editor) {
+Component create_fuzzy_file_selection_modal(std::function<void()> do_nothing, std::function<void()> hide_modal,
+                                            ModalEditor &modal_editor) {
 
+    // TODO: remove
     auto component = Container::Vertical({
         Button("Do nothing", do_nothing, button_style),
         Button("Quit modal", hide_modal, button_style),
@@ -911,17 +820,30 @@ Component create_modal_component(std::function<void()> do_nothing, std::function
 
     component |= Renderer([&](Element inner) {
         std::vector<Element> matched_file_texts;
+        unsigned int iter = 0;
         for (const auto &matched_file : modal_editor.fuzzy_file_selection_currently_matched_files) {
-            matched_file_texts.push_back(text(matched_file));
+            auto t = text(matched_file);
+            if (iter == modal_editor.fuzzy_file_selection_idx) {
+                t |= bgcolor(Color::Grey63);
+            }
+            matched_file_texts.push_back(t);
+            ++iter;
         }
+
+        std::reverse(matched_file_texts.begin(), matched_file_texts.end());
+
         std::vector<Element> x = {
             text("Modal component "),
             separator(),
             inner,
         };
-        return vbox(x)                         //
-               | size(WIDTH, GREATER_THAN, 30) //
-               | border;                       //
+        return vbox({
+                   window(text("results"), vbox(matched_file_texts)),
+                   window(text("search"), text(modal_editor.fuzzy_file_selection_search_query)),
+               }) |
+               size(WIDTH, GREATER_THAN, 50) // TODO: remove this hard value instead use percentages of active viewport
+               | size(HEIGHT, GREATER_THAN, 25) //
+               | border;                        //
     });
     return component;
 }
@@ -1088,22 +1010,53 @@ int main(int argc, char *argv[]) {
             modal_editor.viewport.num_cols = num_cols;
             modal_editor.viewport.num_lines = num_lines;
 
-            modal_editor.viewport.cursor_col_offset = num_cols / 2;
-            modal_editor.viewport.cursor_line_offset = num_lines / 2;
+            modal_editor.viewport.half_num_cols = num_cols / 2;
+            modal_editor.viewport.half_num_lines = num_lines / 2;
 
             center_line = num_lines / 2;
             center_col = num_cols / 2;
 
             auto c = Canvas(num_cols * 2, num_lines * 4); // Match canvas size to your drawing area
 
-            for (int line = 0; line < num_lines; line++) {
-                for (int col = 0; col < num_cols; col++) {
-                    std::string cell_char(1, viewport.get_symbol_at(line, col));
-                    c.DrawText(col * 2, line * 4, cell_char, [&](Pixel &p) {
-                        p.foreground_color = Color::Yellow;
-                        bool at_center = line == center_line and col == center_col;
-                        if (at_center) {
+            unsigned int vsel_min_buf_col = std::min(modal_editor.buffer_col_where_selection_mode_started,
+                                                     modal_editor.viewport.active_buffer_col_under_cursor);
+            unsigned int vsel_max_buf_col = std::max(modal_editor.buffer_col_where_selection_mode_started,
+                                                     modal_editor.viewport.active_buffer_col_under_cursor);
+            unsigned int vsel_min_buf_line = std::min(modal_editor.buffer_line_where_selection_mode_started,
+                                                      modal_editor.viewport.active_buffer_line_under_cursor);
+            unsigned int vsel_max_buf_line = std::max(modal_editor.buffer_line_where_selection_mode_started,
+                                                      modal_editor.viewport.active_buffer_line_under_cursor);
+
+            for (int vp_line = 0; vp_line < num_lines; vp_line++) {
+                for (int vp_col = 0; vp_col < num_cols; vp_col++) {
+
+                    bool line_in_visual_selection = false;
+                    bool col_in_visual_selection = false;
+                    bool cell_should_be_selected = false;
+
+                    if (modal_editor.current_mode == VISUAL_SELECT) {
+                        auto [buf_line, buf_col] =
+                            modal_editor.viewport.viewport_idx_to_centered_buffer_idx(vp_line, vp_col);
+                        line_in_visual_selection = vsel_min_buf_line <= buf_line and buf_line <= vsel_max_buf_line;
+                        col_in_visual_selection = vsel_min_buf_col <= buf_col and buf_col <= vsel_max_buf_col;
+                        cell_should_be_selected = line_in_visual_selection and col_in_visual_selection;
+                    }
+
+                    bool position_is_within_selection_column_wise =
+                        modal_editor.buffer_col_where_selection_mode_started <= vp_line and
+                        vp_line <= modal_editor.viewport.active_buffer_col_under_cursor;
+
+                    std::string cell_char(1, viewport.get_symbol_at(vp_line, vp_col));
+                    c.DrawText(vp_col * 2, vp_line * 4, cell_char, [&](Pixel &p) {
+                        bool at_center = vp_line == center_line and vp_col == center_col;
+                        // the modal editor will always cover up the thing so in that case don't draw it
+                        if (at_center and not modal_editor.fuzzy_file_selection_modal_is_active) {
                             p.background_color = Color::White;
+                            p.foreground_color = Color::Black;
+                        } else if (cell_should_be_selected) {
+                            p.background_color = Color::Grey63;
+                        } else {
+                            p.foreground_color = Color::White;
                         }
                     });
                 }
@@ -1123,7 +1076,7 @@ int main(int argc, char *argv[]) {
 
             auto command_and_update_bar = text(modal_editor.command_bar_input);
 
-            auto status = generate_status_bar(modal_editor, filename);
+            auto status = generate_status_bar(modal_editor, modal_editor.viewport.buffer->current_file_path);
 
             return vbox(canvas(std::move(c)) | border, status, command_and_update_bar);
         }),
@@ -1132,7 +1085,7 @@ int main(int argc, char *argv[]) {
     auto hide_modal = [&] { modal_editor.fuzzy_file_selection_modal_is_active = false; };
     auto do_nothing = [&] {};
 
-    auto modal_component = create_modal_component(do_nothing, hide_modal, modal_editor);
+    auto modal_component = create_fuzzy_file_selection_modal(do_nothing, hide_modal, modal_editor);
 
     component |= Modal(modal_component, &modal_editor.fuzzy_file_selection_modal_is_active);
 
@@ -1170,10 +1123,12 @@ int main(int argc, char *argv[]) {
 
         modal_editor.iks = input_key_state;
 
-        std::vector<std::filesystem::path> dummy;
+        std::string search_dir = ".";
+        std::vector<std::string> ignore_dirs = {"build", ".git", "__pycache__"};
+        std::vector<std::filesystem::path> searchable_files = rec_get_all_files(search_dir, ignore_dirs);
 
         viewport.save_previous_viewport_screen();
-        modal_editor.run_key_logic(dummy);
+        modal_editor.run_key_logic(searchable_files);
 
         auto keys = modal_editor.iks.get_keys_just_pressed_this_tick();
 
