@@ -806,24 +806,20 @@ Element generate_status_bar(ModalEditor &modal_editor, const std::string &filena
     return status;
 }
 
-auto button_style = ButtonOption::Animated();
 Component create_fuzzy_file_selection_modal(std::function<void()> do_nothing, std::function<void()> hide_modal,
                                             ModalEditor &modal_editor) {
 
     // TODO: remove
-    auto component = Container::Vertical({
-        Button("Do nothing", do_nothing, button_style),
-        Button("Quit modal", hide_modal, button_style),
-    });
+    auto component = Container::Vertical({});
 
     // Polish how the two buttons are rendered:
 
     component |= Renderer([&](Element inner) {
         std::vector<Element> matched_file_texts;
         unsigned int iter = 0;
-        for (const auto &matched_file : modal_editor.fuzzy_file_selection_currently_matched_files) {
+        for (const auto &matched_file : modal_editor.fuzzy_file_selection_modal.currently_matched_results) {
             auto t = text(matched_file);
-            if (iter == modal_editor.fuzzy_file_selection_idx) {
+            if (iter == modal_editor.fuzzy_file_selection_modal.current_selection_index) {
                 t |= bgcolor(Color::Grey63);
             }
             matched_file_texts.push_back(t);
@@ -839,7 +835,45 @@ Component create_fuzzy_file_selection_modal(std::function<void()> do_nothing, st
         };
         return vbox({
                    window(text("results"), vbox(matched_file_texts)),
-                   window(text("search"), text(modal_editor.fuzzy_file_selection_search_query)),
+                   window(text("search"), text(modal_editor.fuzzy_file_selection_modal.search_query)),
+               }) |
+               size(WIDTH, GREATER_THAN, 50) // TODO: remove this hard value instead use percentages of active viewport
+               | size(HEIGHT, GREATER_THAN, 25) //
+               | border;                        //
+    });
+    return component;
+}
+
+Component create_open_buffers_selection_modal(std::function<void()> do_nothing, std::function<void()> hide_modal,
+                                              ModalEditor &modal_editor) {
+
+    // TODO: remove
+    auto component = Container::Vertical({});
+
+    // Polish how the two buttons are rendered:
+
+    component |= Renderer([&](Element inner) {
+        std::vector<Element> matched_file_texts;
+        unsigned int iter = 0;
+        for (const auto &active_file_buffer : modal_editor.viewport.active_file_buffers) {
+            auto t = text(active_file_buffer->current_file_path);
+            if (iter == modal_editor.fuzzy_file_selection_modal.current_selection_index) {
+                t |= bgcolor(Color::Grey63);
+            }
+            matched_file_texts.push_back(t);
+            ++iter;
+        }
+
+        std::reverse(matched_file_texts.begin(), matched_file_texts.end());
+
+        std::vector<Element> x = {
+            text("Modal component "),
+            separator(),
+            inner,
+        };
+        return vbox({
+                   window(text("results"), vbox(matched_file_texts)),
+                   window(text("search"), text(modal_editor.fuzzy_file_selection_modal.search_query)),
                }) |
                size(WIDTH, GREATER_THAN, 50) // TODO: remove this hard value instead use percentages of active viewport
                | size(HEIGHT, GREATER_THAN, 25) //
@@ -1050,7 +1084,7 @@ int main(int argc, char *argv[]) {
                     c.DrawText(vp_col * 2, vp_line * 4, cell_char, [&](Pixel &p) {
                         bool at_center = vp_line == center_line and vp_col == center_col;
                         // the modal editor will always cover up the thing so in that case don't draw it
-                        if (at_center and not modal_editor.fuzzy_file_selection_modal_is_active) {
+                        if (at_center and not modal_editor.fuzzy_file_selection_modal.active) {
                             p.background_color = Color::White;
                             p.foreground_color = Color::Black;
                         } else if (cell_should_be_selected) {
@@ -1062,7 +1096,7 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            if (modal_editor.fuzzy_file_selection_modal_is_active) {
+            if (modal_editor.fuzzy_file_selection_modal.active) {
             }
 
             auto just_pressed_keys = input_key_state.get_keys_just_pressed_this_tick();
@@ -1082,12 +1116,12 @@ int main(int argc, char *argv[]) {
         }),
     });
 
-    auto hide_modal = [&] { modal_editor.fuzzy_file_selection_modal_is_active = false; };
+    auto hide_modal = [&] { modal_editor.fuzzy_file_selection_modal.active = false; };
     auto do_nothing = [&] {};
 
     auto modal_component = create_fuzzy_file_selection_modal(do_nothing, hide_modal, modal_editor);
 
-    component |= Modal(modal_component, &modal_editor.fuzzy_file_selection_modal_is_active);
+    component |= Modal(modal_component, &modal_editor.fuzzy_file_selection_modal.active);
 
     component |= CatchEvent([&](Event event) {
         keys.push_back(event);

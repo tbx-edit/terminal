@@ -169,6 +169,16 @@ enum EditorMode {
     COMMAND,
 };
 
+class FuzzySearchModal {
+  public:
+    bool active = false;
+    std::string search_query = "";
+    TemporalBinarySignal search_results_changed_signal;
+    std::vector<std::string> currently_matched_results;
+    unsigned int current_selection_index = 0;
+    unsigned int max_num_results = 10;
+};
+
 class ModalEditor {
   public:
     // main stuff start
@@ -203,21 +213,8 @@ class ModalEditor {
     bool file_search_is_active = false;
     // searching within file ]]
 
-    // fuzzy_file_selection_modal [[
-    bool fuzzy_file_selection_modal_is_active = false;
-    std::string fuzzy_file_selection_search_query = "";
-    TemporalBinarySignal fuzzy_file_selection_search_results_changed_signal;
-    std::vector<std::string> fuzzy_file_selection_currently_matched_files;
-    unsigned int fuzzy_file_selection_idx = 0;
-    unsigned int fuzzy_file_selection_max_matched_files = 10;
-    // fuzzy_file_selection_modal ]]
-
-    // active_file_buffers_modal [[
-    bool active_file_buffers_modal_is_active = false;
-    std::string active_file_buffers_modal_search_query = "";
-    TemporalBinarySignal active_file_buffers_modal_search_results_changed_signal;
-    std::vector<std::string> active_file_buffers_modal_currently_matched_files;
-    // active_file_buffers_modal ]]
+    FuzzySearchModal fuzzy_file_selection_modal;
+    FuzzySearchModal open_buffers_selection_modal;
 
     // actual logic here
     void switch_files(const std::string &file_to_open, bool store_movements_to_history);

@@ -240,6 +240,7 @@ std::string get_full_path(const std::string &file_path) {
     return file_path;
 }
 
+// if a buffer already exists it will use that one, otherwise it will create a new one
 void ModalEditor::switch_files(const std::string &file_to_open, bool store_movements_to_history) {
 
     bool found_active_file_buffer = false;
@@ -632,13 +633,13 @@ void ModalEditor::redo() {
 
 void ModalEditor::launch_search_files() {
     if (current_mode == MOVE_AND_EDIT) {
-        fuzzy_file_selection_modal_is_active = true;
+        fuzzy_file_selection_modal.active = true;
     }
 }
 
 void ModalEditor::search_active_buffers() {
     if (current_mode == MOVE_AND_EDIT) {
-        active_file_buffers_modal_is_active = true;
+        open_buffers_selection_modal.active = true;
     }
 }
 
@@ -857,11 +858,92 @@ std::vector<std::pair<std::string, double>> find_matching_files(const std::strin
     return results;
 }
 
-void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_files) {
+void update_fuzzy_search_modal(FuzzySearchModal &fuzzy_file_selection_modal) {
+    bool query_was_updated = false;
 
-    // less keystrokes please:
-    // std::function<bool(EKey)> jp = [&](EKey k) { return input_state.is_just_pressed(k); };
-    // std::function<bool(EKey)> ip = [&](EKey k) { return input_state.is_pressed(k); };
+    if (jp(InputKey::BACKSPACE)) {
+        if (fuzzy_file_selection_modal.search_query != "") {
+            fuzzy_file_selection_modal.search_query.pop_back();
+            query_was_updated = true;
+        }
+    }
+
+    bool movement_input = false;
+    if (ip(InputKey::LEFT_CONTROL)) {
+
+        if (jp(InputKey::p)) {
+            fuzzy_file_selection_modal.current_selection_index++;
+            movement_input = true;
+        }
+
+        if (jp(InputKey::n)) {
+            fuzzy_file_selection_modal.current_selection_index--;
+            movement_input = true;
+        }
+
+        fuzzy_file_selection_modal.current_selection_index %= std::min<size_t>(
+            fuzzy_file_selection_modal.max_num_results,
+            fuzzy_file_selection_modal.currently_matched_results.size()); // TODO use min of num matches
+    }
+
+    if (not keys_just_pressed_this_tick.empty() and
+        not movement_input) { // if a movement input occurred we don't count that towards the query input
+
+        for (const auto &key : keys_just_pressed_this_tick) {
+            fuzzy_file_selection_modal.search_query += key;
+            query_was_updated = true;
+        }
+
+        if (query_was_updated) {
+            auto file_score_pairs = find_matching_files(fuzzy_file_selection_modal.search_query, searchable_files, 10);
+            std::vector<std::string> matched_files;
+            for (const auto &pair : file_score_pairs) {
+                matched_files.push_back(pair.first);
+            }
+            fuzzy_file_selection_modal.currently_matched_results = matched_files;
+        }
+
+        if (searchable_files.empty()) {
+            std::cout << "No files found in the search directory." << std::endl;
+        } else {
+
+            // update_graphical_search_results(fs_browser_search_query, searchable_files, fb,
+            //                                 doids_for_textboxes_for_active_directory_for_later_removal,
+            //                                 fs_browser, search_results_changed_signal,
+            //                                 selected_file_doid, currently_matched_files);
+        }
+    }
+
+    if (jp(InputKey::ENTER)) {
+        if (fuzzy_file_selection_modal.currently_matched_results.size() != 0) {
+
+            std::cout << "about to load up: "
+                      << fuzzy_file_selection_modal
+                             .currently_matched_results[fuzzy_file_selection_modal.current_selection_index]
+                      << std::endl;
+            std::string file_to_open =
+                fuzzy_file_selection_modal
+                    .currently_matched_results[fuzzy_file_selection_modal.current_selection_index];
+            std::cout << "file_to_open: " << file_to_open << std::endl;
+
+            switch_files(file_to_open, true);
+
+            fuzzy_file_selection_modal.active = false;
+            fuzzy_file_selection_modal.search_query = "";
+
+            return;
+        }
+    }
+
+    if (jp(InputKey::CAPS_LOCK) or jp(InputKey::ESCAPE)) {
+        std::cout << "tried to turn off fb" << std::endl;
+        fuzzy_file_selection_modal.active = false;
+        fuzzy_file_selection_modal.search_query = "";
+        return;
+    }
+}
+
+void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_files) {
 
     std::function<bool(InputKey)> jp = [&](InputKey k) { return iks.is_just_pressed(k); };
     std::function<bool(InputKey)> ip = [&](InputKey k) { return iks.is_pressed(k); };
@@ -925,8 +1007,10 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
     if (should_try_to_run_regex_command) {
     }
 
+    bool popup_is_active = fuzzy_file_selection_modal.active or open_buffers_selection_modal.active;
+
     // TODO: this should not be the outermost if statement
-    if (not fuzzy_file_selection_modal_is_active) {
+    if (not popup_is_active) {
         if (current_mode != INSERT) {
             // NOTE: if keys just pressed this tick is has length greater or equal to 2, then that implies two keys were
             // pressed ina single tick, should be rare enough to ignore, but note that it may be a cause for later bugs.
@@ -960,84 +1044,14 @@ void ModalEditor::run_key_logic(std::vector<std::filesystem::path> &searchable_f
                 potential_regex_command = "";
             }
         }
-    } else { // otherwise we are in the case that the file browser is active
+    } else { // otherwise we are in the case that a popup is active
 
-        bool query_was_updated = false;
-
-        if (jp(InputKey::BACKSPACE)) {
-            if (fuzzy_file_selection_search_query != "") {
-                fuzzy_file_selection_search_query.pop_back();
-                query_was_updated = true;
-            }
-        }
-
-        bool movement_input = false;
-        if (ip(InputKey::LEFT_CONTROL)) {
-            if (jp(InputKey::p)) {
-                fuzzy_file_selection_idx++;
-                movement_input = true;
-            }
-
-            if (jp(InputKey::n)) {
-                fuzzy_file_selection_idx--;
-                movement_input = true;
-            }
-
-            fuzzy_file_selection_idx %= fuzzy_file_selection_max_matched_files; // TODO use min of num matches
-        }
-
-        if (not keys_just_pressed_this_tick.empty() and
-            not movement_input) { // if a movement input occurred we don't count that towards the query input
-
-            for (const auto &key : keys_just_pressed_this_tick) {
-                fuzzy_file_selection_search_query += key;
-                query_was_updated = true;
-            }
-
-            if (query_was_updated) {
-                auto file_score_pairs = find_matching_files(fuzzy_file_selection_search_query, searchable_files, 10);
-                std::vector<std::string> matched_files;
-                for (const auto &pair : file_score_pairs) {
-                    matched_files.push_back(pair.first);
-                }
-                fuzzy_file_selection_currently_matched_files = matched_files;
-            }
-
-            if (searchable_files.empty()) {
-                std::cout << "No files found in the search directory." << std::endl;
-            } else {
-
-                // update_graphical_search_results(fs_browser_search_query, searchable_files, fb,
-                //                                 doids_for_textboxes_for_active_directory_for_later_removal,
-                //                                 fs_browser, search_results_changed_signal,
-                //                                 selected_file_doid, currently_matched_files);
-            }
-        }
-
-        if (jp(InputKey::ENTER)) {
-            if (fuzzy_file_selection_currently_matched_files.size() != 0) {
-                std::cout << "about to load up: " << fuzzy_file_selection_currently_matched_files[0] << std::endl;
-                std::string file_to_open = fuzzy_file_selection_currently_matched_files[0];
-                std::cout << "file_to_open: " << file_to_open << std::endl;
-
-                switch_files(file_to_open, true);
-
-                fuzzy_file_selection_modal_is_active = false;
-                fuzzy_file_selection_search_query = "";
-
-                return;
-            }
-        }
-
-        if (jp(InputKey::CAPS_LOCK) or jp(InputKey::ESCAPE)) {
-            std::cout << "tried to turn off fb" << std::endl;
-            fuzzy_file_selection_modal_is_active = false;
-            fuzzy_file_selection_search_query = "";
-            return;
+        if (fuzzy_file_selection_modal.active) {
+        } else if (open_buffers_selection_modal.active) {
         }
     }
 
-    if (fuzzy_file_selection_modal_is_active) {
+    if (fuzzy_file_selection_modal.active) {
         return;
     }
 
